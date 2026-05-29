@@ -10,7 +10,8 @@ import {
   Toolbar,
   ToolbarSeparator,
 } from '@board-studio/ui';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { downloadBoard, openBoardFile } from './file-io';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
 
@@ -89,6 +90,19 @@ export function App() {
   const lastReal = Math.max(1, sectionCount - 2);
   const clampedCs = Math.min(Math.max(csIndex, 1), lastReal);
 
+  const fileInput = useRef<HTMLInputElement>(null);
+  const onOpenFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-opening the same file
+    if (!file) return;
+    try {
+      boardStore.getState().load(await openBoardFile(file));
+    } catch (err) {
+      console.error('Failed to open board', err);
+      alert(`Could not open ${file.name}: ${(err as Error).message}`);
+    }
+  };
+
   const tab = (v: View, label: string) => (
     <Button size="sm" variant={view === v ? 'secondary' : 'ghost'} onClick={() => setView(v)}>
       {label}
@@ -138,8 +152,18 @@ export function App() {
           Redo
         </Button>
         <div className="flex-1" />
-        <Button size="sm" disabled>
-          New board
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".board.json,.json,.brd"
+          className="hidden"
+          onChange={onOpenFile}
+        />
+        <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
+          Open
+        </Button>
+        <Button size="sm" disabled={!board} onClick={() => board && downloadBoard(board)}>
+          Save
         </Button>
       </Toolbar>
 

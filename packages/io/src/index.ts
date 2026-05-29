@@ -8,3 +8,10 @@
  */
 export { parseBrd } from './brd-reader';
 export type { ParsedBrd, BrdMetadataValue } from './brd-reader';
+export {
+  writeBoardJson,
+  readBoardJson,
+  BoardJsonError,
+  BOARD_JSON_VERSION,
+  type BoardJson,
+} from './board-json';
