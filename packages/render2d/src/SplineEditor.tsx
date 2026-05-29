@@ -2,29 +2,38 @@ import { type BezierBoard } from '@board-studio/kernel';
 import { type BoardState, type SplineTarget, getTargetSpline } from '@board-studio/store';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
-import { clear, defaultStyle, drawControlPoints, drawSpline } from './draw';
+import { clear, defaultStyle, drawControlPoints, drawSpline, type DrawStyle } from './draw';
 import { hitTest, type Hit } from './hit';
 import { boundsOf, sampleSpline } from './sample';
 import { fitToBounds, pan, screenToWorld, zoomAt, type Viewport } from './viewport';
 
 export interface SplineEditorProps {
   store: StoreApi<BoardState>;
-  target: SplineTarget;
-  /** Mirror the curve across y=0 (used for the outline, which is a half-width). */
+  /** One or more splines to draw + edit in this view (e.g. [deck, bottom]). */
+  targets: SplineTarget[];
+  /** Mirror across y=0 (for the outline, a half-width). */
   mirrorY?: boolean;
+  /** Per-target curve colors (cycled if shorter than targets). */
+  colors?: string[];
   className?: string;
 }
 
 type DragState =
-  | { mode: 'edit'; hit: Hit }
+  | { mode: 'edit'; target: SplineTarget; hit: Hit }
   | { mode: 'pan'; lastX: number; lastY: number }
   | null;
+
+const PALETTE = ['#cc785c', '#6ca0cc', '#8fbf73', '#c08fcf'];
 
 const useBoard = (store: StoreApi<BoardState>): BezierBoard | null =>
   useSyncExternalStore(store.subscribe, () => store.getState().board);
 
-/** A canvas editor for one spline of the board (outline / deck / bottom). */
-export function SplineEditor({ store, target, mirrorY = false, className }: SplineEditorProps) {
+const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
+  a.kind === b.kind &&
+  (a.kind !== 'crossSection' || (b as { index: number }).index === a.index);
+
+/** A canvas editor for one or more board splines (outline / deck+bottom / cross-section). */
+export function SplineEditor({ store, targets, mirrorY = false, colors, className }: SplineEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const board = useBoard(store);
@@ -32,8 +41,8 @@ export function SplineEditor({ store, target, mirrorY = false, className }: Spli
   const [vp, setVp] = useState<Viewport | null>(null);
   const drag = useRef<DragState>(null);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
+  const key = JSON.stringify(targets);
 
-  // Track container size.
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -43,16 +52,16 @@ export function SplineEditor({ store, target, mirrorY = false, className }: Spli
     return () => ro.disconnect();
   }, []);
 
-  // Fit the view once we have a board + a size and no viewport yet.
+  // Re-fit when the target set changes, or we first get a board + a size.
   useEffect(() => {
-    if (vp || !board || size.w === 0) return;
-    const pts = sampleSpline(getTargetSpline(board, target));
-    if (pts.length === 0) return;
-    const b = boundsOf(mirrorY ? pts.flatMap((p) => [p, { x: p.x, y: -p.y }]) : pts);
-    setVp(fitToBounds(b, size.w, size.h));
-  }, [vp, board, size, target, mirrorY]);
+    if (!board || size.w === 0) return;
+    const all = targets.flatMap((t) => sampleSpline(getTargetSpline(board, t)));
+    if (all.length === 0) return;
+    const pts = mirrorY ? all.flatMap((p) => [p, { x: p.x, y: -p.y }]) : all;
+    setVp(fitToBounds(boundsOf(pts), size.w, size.h));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, board === null, size.w, size.h]);
 
-  // Redraw whenever board / viewport / size / selection changes.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !vp || !board || size.w === 0) return;
@@ -63,11 +72,15 @@ export function SplineEditor({ store, target, mirrorY = false, className }: Spli
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     clear(ctx, size.w, size.h);
-    const spline = getTargetSpline(board, target);
-    drawSpline(ctx, spline, vp, defaultStyle, mirrorY);
-    const sel = selection && selectionMatches(selection.target, target) ? selection.index : null;
-    drawControlPoints(ctx, spline, vp, defaultStyle, sel);
-  }, [board, vp, size, selection, target, mirrorY]);
+    const palette = colors ?? PALETTE;
+    targets.forEach((t, i) => {
+      const spline = getTargetSpline(board, t);
+      const style: DrawStyle = { ...defaultStyle, curve: palette[i % palette.length]! };
+      drawSpline(ctx, spline, vp, style, mirrorY);
+      const sel = selection && sameTarget(selection.target, t) ? selection.index : null;
+      drawControlPoints(ctx, spline, vp, style, sel);
+    });
+  }, [board, vp, size, selection, key, mirrorY, colors, targets]);
 
   const localPoint = (e: React.PointerEvent): { x: number; y: number } => {
     const r = canvasRef.current!.getBoundingClientRect();
@@ -83,17 +96,19 @@ export function SplineEditor({ store, target, mirrorY = false, className }: Spli
         drag.current = { mode: 'pan', lastX: p.x, lastY: p.y };
         return;
       }
-      const hit = hitTest(getTargetSpline(board, target), vp, p);
-      if (hit) {
-        store.getState().select({ target, index: hit.index });
-        store.getState().beginEdit();
-        drag.current = { mode: 'edit', hit };
-      } else {
-        store.getState().select(null);
-        drag.current = { mode: 'pan', lastX: p.x, lastY: p.y };
+      for (const t of targets) {
+        const hit = hitTest(getTargetSpline(board, t), vp, p);
+        if (hit) {
+          store.getState().select({ target: t, index: hit.index });
+          store.getState().beginEdit();
+          drag.current = { mode: 'edit', target: t, hit };
+          return;
+        }
       }
+      store.getState().select(null);
+      drag.current = { mode: 'pan', lastX: p.x, lastY: p.y };
     },
-    [vp, board, store, target],
+    [vp, board, store, targets],
   );
 
   const onPointerMove = useCallback(
@@ -108,16 +123,15 @@ export function SplineEditor({ store, target, mirrorY = false, className }: Spli
         return;
       }
       const world = screenToWorld(vp, p);
-      if (d.hit.kind === 'end') store.getState().moveControlPoint(target, d.hit.index, world);
-      else store.getState().moveTangent(target, d.hit.index, d.hit.kind, world);
+      if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, world);
+      else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, world);
     },
-    [vp, store, target],
+    [vp, store],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
-      const d = drag.current;
-      if (d?.mode === 'edit') store.getState().endEdit();
+      if (drag.current?.mode === 'edit') store.getState().endEdit();
       drag.current = null;
       canvasRef.current?.releasePointerCapture(e.pointerId);
     },
@@ -145,10 +159,4 @@ export function SplineEditor({ store, target, mirrorY = false, className }: Spli
       />
     </div>
   );
-}
-
-function selectionMatches(a: SplineTarget, b: SplineTarget): boolean {
-  if (a.kind !== b.kind) return false;
-  if (a.kind === 'crossSection' && b.kind === 'crossSection') return a.index === b.index;
-  return true;
 }

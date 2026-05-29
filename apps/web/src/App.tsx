@@ -10,9 +10,12 @@ import {
   Toolbar,
   ToolbarSeparator,
 } from '@board-studio/ui';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import type { SplineTarget } from '@board-studio/store';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
+
+type View = 'outline' | 'rocker';
 
 const cm = (v: number) => `${v.toFixed(2)} cm`;
 const inches = (v: number) => `${(v / 2.54).toFixed(2)}"`;
@@ -43,16 +46,28 @@ export function App() {
 
   const specs = board ? selectSpecs(board) : null;
   const s = boardStore.getState();
+  const [view, setView] = useState<View>('outline');
+
+  const editorTargets: SplineTarget[] =
+    view === 'outline' ? [{ kind: 'outline' }] : [{ kind: 'deck' }, { kind: 'bottom' }];
 
   return (
     <div className="flex h-full flex-col">
       <Toolbar>
         <span className="px-2 font-semibold">Board Studio</span>
         <ToolbarSeparator />
-        <Button size="sm" variant="secondary">
+        <Button
+          size="sm"
+          variant={view === 'outline' ? 'secondary' : 'ghost'}
+          onClick={() => setView('outline')}
+        >
           Outline
         </Button>
-        <Button size="sm" variant="ghost" disabled>
+        <Button
+          size="sm"
+          variant={view === 'rocker' ? 'secondary' : 'ghost'}
+          onClick={() => setView('rocker')}
+        >
           Rocker
         </Button>
         <Button size="sm" variant="ghost" disabled>
@@ -77,13 +92,18 @@ export function App() {
       <div className="flex flex-1 gap-3 p-3">
         <Panel className="flex flex-1 flex-col">
           <PanelHeader>
-            <PanelTitle>Outline</PanelTitle>
+            <PanelTitle>{view === 'outline' ? 'Outline' : 'Rocker (deck + bottom)'}</PanelTitle>
             <span className="text-xs text-muted-foreground">
               drag points • drag handles • scroll to zoom • drag empty to pan
             </span>
           </PanelHeader>
           <PanelBody className="flex-1 p-0">
-            <SplineEditor store={boardStore} target={{ kind: 'outline' }} mirrorY />
+            <SplineEditor
+              key={view}
+              store={boardStore}
+              targets={editorTargets}
+              mirrorY={view === 'outline'}
+            />
           </PanelBody>
         </Panel>
 
