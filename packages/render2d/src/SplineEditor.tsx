@@ -13,6 +13,8 @@ export interface SplineEditorProps {
   targets: SplineTarget[];
   /** Mirror across y=0 (for the outline, a half-width). */
   mirrorY?: boolean;
+  /** Mirror across x=0 (for cross-sections, drawn on the +x half). */
+  mirrorX?: boolean;
   /** Per-target curve colors (cycled if shorter than targets). */
   colors?: string[];
   className?: string;
@@ -33,7 +35,14 @@ const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
   (a.kind !== 'crossSection' || (b as { index: number }).index === a.index);
 
 /** A canvas editor for one or more board splines (outline / deck+bottom / cross-section). */
-export function SplineEditor({ store, targets, mirrorY = false, colors, className }: SplineEditorProps) {
+export function SplineEditor({
+  store,
+  targets,
+  mirrorY = false,
+  mirrorX = false,
+  colors,
+  className,
+}: SplineEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const board = useBoard(store);
@@ -57,7 +66,9 @@ export function SplineEditor({ store, targets, mirrorY = false, colors, classNam
     if (!board || size.w === 0) return;
     const all = targets.flatMap((t) => sampleSpline(getTargetSpline(board, t)));
     if (all.length === 0) return;
-    const pts = mirrorY ? all.flatMap((p) => [p, { x: p.x, y: -p.y }]) : all;
+    let pts = all;
+    if (mirrorY) pts = pts.flatMap((p) => [p, { x: p.x, y: -p.y }]);
+    if (mirrorX) pts = pts.flatMap((p) => [p, { x: -p.x, y: p.y }]);
     setVp(fitToBounds(boundsOf(pts), size.w, size.h));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, board === null, size.w, size.h]);
@@ -76,11 +87,11 @@ export function SplineEditor({ store, targets, mirrorY = false, colors, classNam
     targets.forEach((t, i) => {
       const spline = getTargetSpline(board, t);
       const style: DrawStyle = { ...defaultStyle, curve: palette[i % palette.length]! };
-      drawSpline(ctx, spline, vp, style, mirrorY);
+      drawSpline(ctx, spline, vp, style, { mirrorX, mirrorY });
       const sel = selection && sameTarget(selection.target, t) ? selection.index : null;
       drawControlPoints(ctx, spline, vp, style, sel);
     });
-  }, [board, vp, size, selection, key, mirrorY, colors, targets]);
+  }, [board, vp, size, selection, key, mirrorX, mirrorY, colors, targets]);
 
   const localPoint = (e: React.PointerEvent): { x: number; y: number } => {
     const r = canvasRef.current!.getBoundingClientRect();

@@ -21,28 +21,39 @@ export const defaultStyle: DrawStyle = {
   tangent: '#8a8a93',
 };
 
-const moveTo = (ctx: CanvasRenderingContext2D, vp: Viewport, p: Vec2, mirrorY: boolean) => {
-  const s = worldToScreen(vp, mirrorY ? { x: p.x, y: -p.y } : p);
-  ctx.lineTo(s.x, s.y);
+/** Reflection options: outline mirrors across y=0; cross-sections across x=0. */
+export interface Mirror {
+  mirrorX?: boolean;
+  mirrorY?: boolean;
+}
+
+const reflections = (m: Mirror): ((p: Vec2) => Vec2)[] => {
+  const fns: ((p: Vec2) => Vec2)[] = [(p) => p];
+  if (m.mirrorY) fns.push((p) => ({ x: p.x, y: -p.y }));
+  if (m.mirrorX) fns.push((p) => ({ x: -p.x, y: p.y }));
+  return fns;
 };
 
-/** Stroke a spline as a sampled polyline. `mirrorY` draws the −y reflection too. */
+/** Stroke a spline as a sampled polyline, plus any requested mirror reflections. */
 export const drawSpline = (
   ctx: CanvasRenderingContext2D,
   spline: Spline,
   vp: Viewport,
   style: DrawStyle,
-  mirrorY = false,
+  mirror: Mirror = {},
 ): void => {
   const pts = sampleSpline(spline);
   if (pts.length === 0) return;
   ctx.strokeStyle = style.curve;
   ctx.lineWidth = style.curveWidth;
-  for (const mir of mirrorY ? [false, true] : [false]) {
+  for (const f of reflections(mirror)) {
     ctx.beginPath();
-    const first = worldToScreen(vp, mir ? { x: pts[0]!.x, y: -pts[0]!.y } : pts[0]!);
+    const first = worldToScreen(vp, f(pts[0]!));
     ctx.moveTo(first.x, first.y);
-    for (let i = 1; i < pts.length; i++) moveTo(ctx, vp, pts[i]!, mir);
+    for (let i = 1; i < pts.length; i++) {
+      const s = worldToScreen(vp, f(pts[i]!));
+      ctx.lineTo(s.x, s.y);
+    }
     ctx.stroke();
   }
 };

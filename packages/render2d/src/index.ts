@@ -11,5 +11,5 @@ export {
 } from './viewport';
 export { sampleSpline, boundsOf } from './sample';
 export { hitTest, type Hit, type HandleKind } from './hit';
-export { drawSpline, drawControlPoints, clear, defaultStyle, type DrawStyle } from './draw';
+export { drawSpline, drawControlPoints, clear, defaultStyle, type DrawStyle, type Mirror } from './draw';
 export { SplineEditor, type SplineEditorProps } from './SplineEditor';
