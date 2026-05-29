@@ -1,6 +1,7 @@
 import {
   LENGTH_TOLERANCE,
   MIN_MAX_SPLITS,
+  MIN_MAX_TOLERANCE,
   POS_MAX_ITERATIONS,
   POS_TOLERANCE,
 } from './constants';
@@ -148,6 +149,73 @@ export const yForX = (k: Coeffs, x: number): number => {
   const t = tForX(k, x, guess);
   return yValue(k, t);
 };
+
+export type Axis = 'x' | 'y';
+export type Extreme = 'min' | 'max';
+
+const axisValue = (k: Coeffs, axis: Axis, t: number): number =>
+  axis === 'x' ? xValue(k, t) : yValue(k, t);
+
+/**
+ * Numerical min/max of x or y over [t0,t1], legacy
+ * `BezierCurve.getMinMaxNumerical`. The recursion-termination condition
+ * `(best_t - (t1-t0)/2) < tol` is reproduced verbatim (note: not absolute).
+ */
+export const minMaxNumerical = (
+  k: Coeffs,
+  axis: Axis,
+  extreme: Extreme,
+  t0 = 0,
+  t1 = 1,
+  nrOfSplits = MIN_MAX_SPLITS,
+): number => {
+  let bestT = 0;
+  let bestValue = extreme === 'max' ? -1e7 : 1e7;
+  const seg = (t1 - t0) / nrOfSplits;
+  for (let i = 0; i < nrOfSplits; i++) {
+    const t = seg * i + t0;
+    if (t < 0 || t > 1) continue;
+    const v = axisValue(k, axis, t);
+    if (extreme === 'max' ? v >= bestValue : v <= bestValue) {
+      bestValue = v;
+      bestT = t;
+    }
+  }
+  if (bestT - (t1 - t0) / 2 < MIN_MAX_TOLERANCE) return bestValue;
+  if (nrOfSplits <= 2) return bestValue;
+  return minMaxNumerical(k, axis, extreme, bestT - seg, bestT + seg, Math.floor(nrOfSplits / 2));
+};
+
+/** Parameter t at the numerical min/max (legacy getTForMinMaxNumerical). */
+export const tForMinMaxNumerical = (
+  k: Coeffs,
+  axis: Axis,
+  extreme: Extreme,
+  t0 = 0,
+  t1 = 1,
+  nrOfSplits = MIN_MAX_SPLITS,
+): number => {
+  let bestT = 0;
+  let bestValue = extreme === 'max' ? -1e7 : 1e7;
+  const seg = (t1 - t0) / nrOfSplits;
+  for (let i = 0; i < nrOfSplits; i++) {
+    const t = seg * i + t0;
+    if (t < 0 || t > 1) continue;
+    const v = axisValue(k, axis, t);
+    if (extreme === 'max' ? v >= bestValue : v <= bestValue) {
+      bestValue = v;
+      bestT = t;
+    }
+  }
+  if (bestT - (t1 - t0) / 2 < MIN_MAX_TOLERANCE) return bestT;
+  if (nrOfSplits <= 2) return bestT;
+  return tForMinMaxNumerical(k, axis, extreme, bestT - seg, bestT + seg, Math.floor(nrOfSplits / 2));
+};
+
+export const minX = (k: Coeffs): number => minMaxNumerical(k, 'x', 'min');
+export const maxX = (k: Coeffs): number => minMaxNumerical(k, 'x', 'max');
+export const minY = (k: Coeffs): number => minMaxNumerical(k, 'y', 'min');
+export const maxY = (k: Coeffs): number => minMaxNumerical(k, 'y', 'max');
 
 /** Recursive arc length over [t0, t1] (legacy chord-vs-polyline subdivision). */
 export const length = (k: Coeffs, t0 = 0, t1 = 1): number => {

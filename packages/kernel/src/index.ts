@@ -12,5 +12,7 @@
  */
 export * from './vec2';
 export * from './constants';
+export * from './math';
 export * from './knot';
 export * from './bezier-curve';
+export * from './bezier-spline';
