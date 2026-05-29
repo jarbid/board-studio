@@ -12,15 +12,13 @@ import {
   ToolbarSeparator,
 } from '@board-studio/ui';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { downloadBoard, openBoardFile } from './file-io';
+import { downloadBoard, exportBoard, openBoardFile, type ExportFormat } from './file-io';
+import { fmtLen, fmtVol, type UnitSystem } from './format';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
 
 type EditorKind = 'outline' | 'rocker' | 'crossSection';
 type View = 'quad' | EditorKind | '3d';
-
-const cm = (v: number) => `${v.toFixed(2)} cm`;
-const inches = (v: number) => `${(v / 2.54).toFixed(2)}"`;
 
 function SpecRow({ label, value }: { label: string; value: string }) {
   return (
@@ -86,6 +84,38 @@ export function App() {
   const s = boardStore.getState();
   const [view, setView] = useState<View>('quad');
   const [csIndex, setCsIndex] = useState(1);
+  const [units, setUnits] = useState<UnitSystem>('imperial');
+
+  // Keyboard shortcuts: undo/redo, save, and view switching (1-5).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) boardStore.getState().redo();
+        else boardStore.getState().undo();
+      } else if (mod && k === 'y') {
+        e.preventDefault();
+        boardStore.getState().redo();
+      } else if (mod && k === 's') {
+        e.preventDefault();
+        const b = boardStore.getState().board;
+        if (b) downloadBoard(b);
+      } else if (!mod) {
+        const map: Record<string, View> = {
+          '1': 'quad',
+          '2': 'outline',
+          '3': 'rocker',
+          '4': 'crossSection',
+          '5': '3d',
+        };
+        if (map[e.key]) setView(map[e.key]!);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const sectionCount = board?.crossSections.length ?? 0;
   const lastReal = Math.max(1, sectionCount - 2);
@@ -161,8 +191,30 @@ export function App() {
         <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
           Open
         </Button>
-        <Button size="sm" disabled={!board} onClick={() => board && downloadBoard(board)}>
+        <Button size="sm" variant="ghost" disabled={!board} onClick={() => board && downloadBoard(board)}>
           Save
+        </Button>
+        <ToolbarSeparator />
+        {(['stl', 'dxf', 'pdf'] as ExportFormat[]).map((f) => (
+          <Button
+            key={f}
+            size="sm"
+            variant="ghost"
+            disabled={!board}
+            onClick={() => board && exportBoard(board, f)}
+            title={`Export ${f.toUpperCase()}`}
+          >
+            {f.toUpperCase()}
+          </Button>
+        ))}
+        <ToolbarSeparator />
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setUnits((u) => (u === 'imperial' ? 'metric' : 'imperial'))}
+          title="Toggle units"
+        >
+          {units === 'imperial' ? 'in' : 'cm'}
         </Button>
       </Toolbar>
 
@@ -214,16 +266,13 @@ export function App() {
           <PanelBody className="space-y-1 text-sm">
             {specs ? (
               <>
-                <SpecRow label="Length" value={`${inches(specs.length)} (${cm(specs.length)})`} />
-                <SpecRow label="Width" value={`${inches(specs.maxWidth)} (${cm(specs.maxWidth)})`} />
-                <SpecRow
-                  label="Thickness"
-                  value={`${inches(specs.thickness)} (${cm(specs.thickness)})`}
-                />
-                <SpecRow label="Wide point" value={cm(specs.maxWidthPos)} />
-                <SpecRow label="Max rocker" value={cm(specs.maxRocker)} />
-                <SpecRow label="Volume" value={`${specs.volumeLiters.toFixed(1)} L`} />
-                <SpecRow label="Center of mass" value={cm(specs.centerOfMass)} />
+                <SpecRow label="Length" value={fmtLen(specs.length, units)} />
+                <SpecRow label="Width" value={fmtLen(specs.maxWidth, units)} />
+                <SpecRow label="Thickness" value={fmtLen(specs.thickness, units)} />
+                <SpecRow label="Wide point" value={fmtLen(specs.maxWidthPos, units)} />
+                <SpecRow label="Max rocker" value={fmtLen(specs.maxRocker, units)} />
+                <SpecRow label="Volume" value={fmtVol(specs.volume)} />
+                <SpecRow label="Center of mass" value={fmtLen(specs.centerOfMass, units)} />
                 <p className="pt-2 text-xs text-muted-foreground">
                   Live from the kernel — every pane edits the same board, so changes sync
                   across views and the specs update instantly.
