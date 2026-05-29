@@ -12,8 +12,19 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo \"(eslint todo)\""
   },
+  "dependencies": {
+    "@board-studio/kernel": "workspace:*",
+    "@board-studio/store": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "zustand": "^5.0.2"
+  },
   "devDependencies": {
+    "@types/react": "^18.3.17",
+    "react": "^18.3.1",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "zustand": "^5.0.2"
   }
 }

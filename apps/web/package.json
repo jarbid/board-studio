@@ -12,12 +12,15 @@
     "lint": "echo \"(eslint todo)\""
   },
   "dependencies": {
+    "@board-studio/io": "workspace:*",
     "@board-studio/kernel": "workspace:*",
+    "@board-studio/render2d": "workspace:*",
     "@board-studio/store": "workspace:*",
     "@board-studio/ui": "workspace:*",
     "@board-studio/units": "workspace:*",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
