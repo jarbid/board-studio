@@ -29,6 +29,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@board-studio/export':
+        specifier: workspace:*
+        version: link:../../packages/export
       '@board-studio/io':
         specifier: workspace:*
         version: link:../../packages/io
