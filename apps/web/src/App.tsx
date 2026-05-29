@@ -1,5 +1,6 @@
 import { parseBrd } from '@board-studio/io';
 import { SplineEditor } from '@board-studio/render2d';
+import { Board3DView } from '@board-studio/render3d';
 import { selectSpecs, type SplineTarget } from '@board-studio/store';
 import {
   Button,
@@ -16,7 +17,7 @@ import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
 
 type EditorKind = 'outline' | 'rocker' | 'crossSection';
-type View = 'quad' | EditorKind;
+type View = 'quad' | EditorKind | '3d';
 
 const cm = (v: number) => `${v.toFixed(2)} cm`;
 const inches = (v: number) => `${(v / 2.54).toFixed(2)}"`;
@@ -120,9 +121,7 @@ export function App() {
         {tab('outline', 'Outline')}
         {tab('rocker', 'Rocker')}
         {tab('crossSection', 'Cross-section')}
-        <Button size="sm" variant="ghost" disabled>
-          3D
-        </Button>
+        {tab('3d', '3D')}
         <ToolbarSeparator />
         {view === 'crossSection' && (
           <>
@@ -174,10 +173,25 @@ export function App() {
               <EditorPane title="Outline" kind="outline" csIndex={clampedCs} />
               <EditorPane title={csTitle} kind="crossSection" csIndex={clampedCs} />
               <EditorPane title="Rocker (deck + bottom)" kind="rocker" csIndex={clampedCs} />
-              <Panel className="flex items-center justify-center text-sm text-muted-foreground">
-                3D view — coming soon
+              <Panel className="flex min-h-0 flex-col">
+                <PanelHeader>
+                  <PanelTitle>3D</PanelTitle>
+                </PanelHeader>
+                <PanelBody className="min-h-0 flex-1 p-0">
+                  <Board3DView store={boardStore} />
+                </PanelBody>
               </Panel>
             </div>
+          ) : view === '3d' ? (
+            <Panel className="flex h-full flex-col">
+              <PanelHeader>
+                <PanelTitle>3D</PanelTitle>
+                <span className="text-xs text-muted-foreground">drag to orbit • scroll to zoom</span>
+              </PanelHeader>
+              <PanelBody className="min-h-0 flex-1 p-0">
+                <Board3DView store={boardStore} />
+              </PanelBody>
+            </Panel>
           ) : (
             <EditorPane
               title={
