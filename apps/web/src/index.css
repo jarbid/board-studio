@@ -1,0 +1,19 @@
+@import 'tailwindcss';
+
+/* Board Studio design tokens (light/dark CSS vars + @theme mapping). */
+@import '@board-studio/ui/styles.css';
+
+/* Scan the design-system package for utility classes used by its components. */
+@source '../../../packages/ui/src';
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  @apply bg-background text-foreground;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}

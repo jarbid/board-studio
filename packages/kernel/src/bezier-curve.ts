@@ -1,0 +1,382 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import {
+  ANGLE_MAX_ITERATIONS,
+  ANGLE_TOLERANCE,
+  CLOSEST_T_SPLITS,
+  CLOSEST_T_TOLERANCE,
+  LENGTH_TOLERANCE,
+  MIN_MAX_SPLITS,
+  MIN_MAX_TOLERANCE,
+  POS_MAX_ITERATIONS,
+  POS_TOLERANCE,
+  T_ONE,
+  T_ZERO,
+} from './constants';
+import type { Knot } from './knot';
+import type { Vec2 } from './vec2';
+import { lerp, vec2 } from './vec2';
+
+/**
+ * A single cubic bezier segment, ported from legacy `cadcore.BezierCurve`.
+ *
+ * Effective control points follow the legacy mapping between two knots:
+ *   p0 = start.end, c1 = start.tangentToNext, c2 = end.tangentToPrev, p3 = end.end
+ *
+ * Evaluation uses the legacy "cubeless" Horner form with precomputed coefficients
+ * (Don Lancaster's formulation):
+ *   x = ((ax·t + bx)·t + cx)·t + dx
+ */
+export interface CubicBezier {
+  readonly p0: Vec2;
+  readonly c1: Vec2;
+  readonly c2: Vec2;
+  readonly p3: Vec2;
+}
+
+export const curveFromKnots = (start: Knot, end: Knot): CubicBezier => ({
+  p0: start.end,
+  c1: start.tangentToNext,
+  c2: end.tangentToPrev,
+  p3: end.end,
+});
+
+export const curveFromPoints = (p0: Vec2, c1: Vec2, c2: Vec2, p3: Vec2): CubicBezier => ({
+  p0,
+  c1,
+  c2,
+  p3,
+});
+
+/** Precomputed polynomial coefficients (legacy coeff0..coeff7) plus endpoints. */
+export interface Coeffs {
+  readonly ax: number;
+  readonly bx: number;
+  readonly cx: number;
+  readonly dx: number;
+  readonly ay: number;
+  readonly by: number;
+  readonly cy: number;
+  readonly dy: number;
+  readonly p0x: number;
+  readonly p3x: number;
+}
+
+export const coeffsOf = (c: CubicBezier): Coeffs => {
+  const { p0, c1, c2, p3 } = c;
+  return {
+    // x = At^3 + Bt^2 + Ct + D
+    ax: p3.x + 3 * (-c2.x + c1.x) - p0.x,
+    bx: 3 * (c2.x - 2 * c1.x + p0.x),
+    cx: 3 * (c1.x - p0.x),
+    dx: p0.x,
+    ay: p3.y + 3 * (-c2.y + c1.y) - p0.y,
+    by: 3 * (c2.y - 2 * c1.y + p0.y),
+    cy: 3 * (c1.y - p0.y),
+    dy: p0.y,
+    p0x: p0.x,
+    p3x: p3.x,
+  };
+};
+
+export const xValue = (k: Coeffs, t: number): number => ((k.ax * t + k.bx) * t + k.cx) * t + k.dx;
+export const yValue = (k: Coeffs, t: number): number => ((k.ay * t + k.by) * t + k.cy) * t + k.dy;
+export const value = (k: Coeffs, t: number): Vec2 => vec2(xValue(k, t), yValue(k, t));
+
+export const xDeriv = (k: Coeffs, t: number): number => (3 * k.ax * t + 2 * k.bx) * t + k.cx;
+export const yDeriv = (k: Coeffs, t: number): number => (3 * k.ay * t + 2 * k.by) * t + k.cy;
+export const xDeriv2 = (k: Coeffs, t: number): number => 6 * k.ax * t + 2 * k.bx;
+export const yDeriv2 = (k: Coeffs, t: number): number => 6 * k.ay * t + 2 * k.by;
+
+/**
+ * Tangent angle. NOTE the legacy convention is `atan2(dx, dy)` (x over y), not the
+ * usual `atan2(dy, dx)` — this reflects BoardCAD's board-coordinate orientation.
+ * Preserved exactly so ported geometry matches the legacy.
+ */
+export const tangent = (k: Coeffs, t: number): number => Math.atan2(xDeriv(k, t), yDeriv(k, t));
+export const normal = (k: Coeffs, t: number): number => tangent(k, t) + Math.PI / 2;
+
+export const tangentVector = (k: Coeffs, t: number): Vec2 => {
+  const a = tangent(k, t);
+  return vec2(Math.cos(a), Math.sin(a));
+};
+
+export const curvature = (k: Coeffs, t: number): number => {
+  const dx = xDeriv(k, t);
+  const dy = yDeriv(k, t);
+  const ddx = xDeriv2(k, t);
+  const ddy = yDeriv2(k, t);
+  return (dx * ddy - dy * ddx) / Math.pow(dx * dx + dy * dy, 1.5);
+};
+
+/** Solve for the parameter t that yields a given x. Newton with bisection fallback. */
+export const tForX = (k: Coeffs, x: number, startT?: number): number => {
+  const t0Guess = startT ?? (x - k.p3x) / (k.p0x - k.p3x);
+  let tn = t0Guess;
+  let xn = xValue(k, tn);
+  let error = x - xn;
+  let n = 0;
+  while (Math.abs(error) > POS_TOLERANCE && n++ < POS_MAX_ITERATIONS) {
+    const slope = 1 / xDeriv(k, tn);
+    tn = tn + error * slope;
+    xn = xValue(k, tn);
+    error = x - xn;
+  }
+  if (
+    tn < 0 ||
+    tn > 1 ||
+    Number.isNaN(tn) ||
+    n >= POS_MAX_ITERATIONS ||
+    Math.abs(error) > POS_TOLERANCE
+  ) {
+    tn = tForXBisect(k, x, 0, 1, MIN_MAX_SPLITS);
+  }
+  return tn;
+};
+
+const tForXBisect = (k: Coeffs, x: number, t0: number, t1: number, nrOfSplits: number): number => {
+  let bestT = 0;
+  let bestError = 1e9;
+  const seg = (t1 - t0) / nrOfSplits;
+  for (let i = 1; i < nrOfSplits; i++) {
+    const t = seg * i + t0;
+    if (t < 0 || t > 1) continue;
+    const error = Math.abs(x - xValue(k, t));
+    if (error < bestError) {
+      bestError = error;
+      bestT = t;
+    }
+  }
+  if (bestError < POS_TOLERANCE) return bestT;
+  if (nrOfSplits <= 2) return bestT;
+  return tForXBisect(k, x, bestT - seg, bestT + seg, Math.floor(nrOfSplits / 2));
+};
+
+export const yForX = (k: Coeffs, x: number): number => {
+  const guess = (x - k.p0x) / (k.p3x - k.p0x);
+  const t = tForX(k, x, guess);
+  return yValue(k, t);
+};
+
+export type Axis = 'x' | 'y';
+export type Extreme = 'min' | 'max';
+
+const axisValue = (k: Coeffs, axis: Axis, t: number): number =>
+  axis === 'x' ? xValue(k, t) : yValue(k, t);
+
+/**
+ * Numerical min/max of x or y over [t0,t1], legacy
+ * `BezierCurve.getMinMaxNumerical`. The recursion-termination condition
+ * `(best_t - (t1-t0)/2) < tol` is reproduced verbatim (note: not absolute).
+ */
+export const minMaxNumerical = (
+  k: Coeffs,
+  axis: Axis,
+  extreme: Extreme,
+  t0 = 0,
+  t1 = 1,
+  nrOfSplits = MIN_MAX_SPLITS,
+): number => {
+  let bestT = 0;
+  let bestValue = extreme === 'max' ? -1e7 : 1e7;
+  const seg = (t1 - t0) / nrOfSplits;
+  for (let i = 0; i < nrOfSplits; i++) {
+    const t = seg * i + t0;
+    if (t < 0 || t > 1) continue;
+    const v = axisValue(k, axis, t);
+    if (extreme === 'max' ? v >= bestValue : v <= bestValue) {
+      bestValue = v;
+      bestT = t;
+    }
+  }
+  if (bestT - (t1 - t0) / 2 < MIN_MAX_TOLERANCE) return bestValue;
+  if (nrOfSplits <= 2) return bestValue;
+  return minMaxNumerical(k, axis, extreme, bestT - seg, bestT + seg, Math.floor(nrOfSplits / 2));
+};
+
+/** Parameter t at the numerical min/max (legacy getTForMinMaxNumerical). */
+export const tForMinMaxNumerical = (
+  k: Coeffs,
+  axis: Axis,
+  extreme: Extreme,
+  t0 = 0,
+  t1 = 1,
+  nrOfSplits = MIN_MAX_SPLITS,
+): number => {
+  let bestT = 0;
+  let bestValue = extreme === 'max' ? -1e7 : 1e7;
+  const seg = (t1 - t0) / nrOfSplits;
+  for (let i = 0; i < nrOfSplits; i++) {
+    const t = seg * i + t0;
+    if (t < 0 || t > 1) continue;
+    const v = axisValue(k, axis, t);
+    if (extreme === 'max' ? v >= bestValue : v <= bestValue) {
+      bestValue = v;
+      bestT = t;
+    }
+  }
+  if (bestT - (t1 - t0) / 2 < MIN_MAX_TOLERANCE) return bestT;
+  if (nrOfSplits <= 2) return bestT;
+  return tForMinMaxNumerical(
+    k,
+    axis,
+    extreme,
+    bestT - seg,
+    bestT + seg,
+    Math.floor(nrOfSplits / 2),
+  );
+};
+
+export const curveMinX = (k: Coeffs): number => minMaxNumerical(k, 'x', 'min');
+export const curveMaxX = (k: Coeffs): number => minMaxNumerical(k, 'x', 'max');
+export const curveMinY = (k: Coeffs): number => minMaxNumerical(k, 'y', 'min');
+export const curveMaxY = (k: Coeffs): number => minMaxNumerical(k, 'y', 'max');
+
+/**
+ * Parameter t at arc-length `lengthLeft` from t=0 (legacy BezierCurve.getTForLength),
+ * via recursive bisection on cumulative length. Operates on the same coeffs used by
+ * `curveLength`.
+ */
+export const tForLength = (k: Coeffs, lengthLeft: number, t0 = T_ZERO, t1 = T_ONE): number => {
+  const ts = (t1 - t0) / 2 + t0;
+  const sl = curveLength(k, t0, ts);
+  if (Math.abs(t0 - t1) < 0.00001) return t0;
+  if (Math.abs(sl - lengthLeft) > LENGTH_TOLERANCE) {
+    if (sl > lengthLeft) return tForLength(k, lengthLeft, t0, ts);
+    return tForLength(k, lengthLeft - sl, ts, t1);
+  }
+  return ts;
+};
+
+/**
+ * Parameter t whose tangent angle equals `targetAngle` (legacy
+ * BezierCurve.getTForTangent2): secant search seeded by (currentT,lastT) with a
+ * bisection fallback over [0,1].
+ */
+export const tForTangent = (
+  k: Coeffs,
+  targetAngle: number,
+  currentT: number,
+  lastT: number,
+): number => {
+  let curT = currentT;
+  let lt0 = lastT;
+  let currentAngle = tangent(k, curT);
+  let lastAngle = tangent(k, lt0);
+  let currentError = targetAngle - currentAngle;
+  let n = 0;
+  while (
+    Math.abs(currentError) > ANGLE_TOLERANCE &&
+    n++ < ANGLE_MAX_ITERATIONS &&
+    curT > T_ZERO &&
+    curT < T_ONE
+  ) {
+    const slope = (currentAngle - lastAngle) / (curT - lt0);
+    lt0 = curT;
+    curT = curT + currentError * slope;
+    lastAngle = currentAngle;
+    currentAngle = tangent(k, curT);
+    currentError = targetAngle - currentAngle;
+  }
+  if (Math.abs(tangent(k, curT) - targetAngle) > ANGLE_TOLERANCE || curT < T_ZERO || curT > T_ONE) {
+    n = 0;
+    let lo = 0.0;
+    let hi = 1.0;
+    while (
+      Math.abs(currentError) > ANGLE_TOLERANCE &&
+      n++ < ANGLE_MAX_ITERATIONS &&
+      hi - lo > 0.00001
+    ) {
+      curT = lo + (hi - lo) / 2.0;
+      currentAngle = tangent(k, curT);
+      currentError = targetAngle - currentAngle;
+      if (currentError < 0.0) lo = curT;
+      else hi = curT;
+    }
+  }
+  return curT;
+};
+
+/** Recursive arc length over [t0, t1] (legacy chord-vs-polyline subdivision). */
+export const curveLength = (k: Coeffs, t0 = 0, t1 = 1): number => {
+  const x0 = xValue(k, t0);
+  const y0 = yValue(k, t0);
+  const x1 = xValue(k, t1);
+  const y1 = yValue(k, t1);
+  const ts = (t1 - t0) / 2 + t0;
+  const sx = xValue(k, ts);
+  const sy = yValue(k, ts);
+  const poly = Math.hypot(sx - x0, sy - y0) + Math.hypot(x1 - sx, y1 - sy);
+  const chord = Math.hypot(x1 - x0, y1 - y0);
+  if (poly - chord > LENGTH_TOLERANCE && t1 - t0 > 0.001) {
+    return curveLength(k, t0, ts) + curveLength(k, ts, t1);
+  }
+  return poly;
+};
+
+/**
+ * Parameter t whose point is nearest (x,y), via recursive coarse-to-fine sampling
+ * (legacy BezierCurve.getClosestT). Same structure as the min/max search: sample
+ * `nrOfSplits` points across [t0,t1], then recurse around the best.
+ *
+ * NOTE: the termination test `bestT - (t1-t0)/2 < tol` is non-absolute — exactly
+ * as the legacy wrote it (compare minMaxNumerical). On the first level this lets a
+ * point in the first half return at coarse resolution; reproduced for fidelity.
+ */
+export const closestT = (
+  k: Coeffs,
+  x: number,
+  y: number,
+  t0 = 0,
+  t1 = 1,
+  nrOfSplits = CLOSEST_T_SPLITS,
+): number => {
+  let bestT = 0;
+  let minDist = Infinity;
+  const seg = (t1 - t0) / nrOfSplits;
+  for (let i = 0; i < nrOfSplits; i++) {
+    const t = seg * i + t0;
+    if (t < 0 || t > 1) continue;
+    const d = Math.hypot(xValue(k, t) - x, yValue(k, t) - y);
+    if (d <= minDist) {
+      minDist = d;
+      bestT = t;
+    }
+  }
+  if (bestT - (t1 - t0) / 2 < CLOSEST_T_TOLERANCE) return bestT;
+  if (nrOfSplits <= 2) return bestT;
+  return closestT(k, x, y, bestT - seg, bestT + seg, Math.floor(nrOfSplits / 2));
+};
+
+/** A cubic subdivided at one parameter: the three points to splice into a spline. */
+export interface CurveSplit {
+  /** Replacement tangentToNext for the segment's start knot (de Casteljau q1). */
+  readonly startTangentToNext: Vec2;
+  /** The inserted knot, sitting exactly on the curve at the split parameter. */
+  readonly mid: {
+    readonly end: Vec2;
+    readonly tangentToPrev: Vec2;
+    readonly tangentToNext: Vec2;
+  };
+  /** Replacement tangentToPrev for the segment's end knot (de Casteljau q3). */
+  readonly endTangentToPrev: Vec2;
+}
+
+/**
+ * Subdivide a cubic at parameter t with de Casteljau (legacy
+ * `BezierCurve.getSplitControlPoint` plus the neighbor fix-up in
+ * `BrdAddControlPointCommand`). Splicing the result into `[start | mid | end]`
+ * reproduces the original curve exactly, so inserting a knot never moves the shape.
+ */
+export const splitCurve = (c: CubicBezier, t: number): CurveSplit => {
+  const q1 = lerp(c.p0, c.c1, t);
+  const q2 = lerp(c.c1, c.c2, t);
+  const q3 = lerp(c.c2, c.p3, t);
+  const r2 = lerp(q1, q2, t);
+  const r3 = lerp(q2, q3, t);
+  const r1 = lerp(r2, r3, t);
+  return {
+    startTangentToNext: q1,
+    mid: { end: r1, tangentToPrev: r2, tangentToNext: r3 },
+    endTangentToPrev: q3,
+  };
+};
