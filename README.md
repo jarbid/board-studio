@@ -70,27 +70,29 @@ pnpm typecheck
 pnpm build        # prerendered static build to apps/web/dist
 ```
 
-## Deploy (Cloudflare Pages)
+## Deploy (Cloudflare)
 
-The site is hosted on **Cloudflare Pages** at the `openshaper.com` apex domain.
+The site deploys to **Cloudflare** (Workers Builds, Git-connected) at the `openshaper.com`
+apex domain. It's an **assets-only** deploy — the prerendered static build is published with
+no server code. `wrangler.toml` declares the assets directory; `.node-version` pins Node.
 
-- **Build command:** `pnpm build`
-- **Build output directory:** `apps/web/dist`
-- **Node version:** 20
-- **Canonical/OG origin:** set the `VITE_SITE_URL` build env var (defaults to
-  `https://openshaper.com`).
+- **Build command (dashboard):** `pnpm build`
+- **Deploy command (dashboard):** `npx wrangler deploy`
+- **Assets directory:** `apps/web/dist` (from `wrangler.toml` → `[assets] directory`)
+- **Worker name:** must match `name` in `wrangler.toml` (`openshaper`)
+- **Canonical/OG origin:** `VITE_SITE_URL` build env var (defaults to `https://openshaper.com`)
 
-A GitHub Pages workflow (`.github/workflows/deploy-pages.yml`) is kept as a fallback; the
-build's `base` is `/` for a root domain and switches to `./` only under a Tauri build.
+`_headers` (in `apps/web/public/`) is honored. The build's `base` is `/` for the root domain
+and switches to `./` only under a Tauri build. A GitHub Pages workflow
+(`.github/workflows/deploy-pages.yml`) remains as an unused fallback.
 
 ### One-time setup (manual)
 
-1. Rename the GitHub repo to `openshaper` (updates the clone/remote URLs).
-2. In Cloudflare Pages, create a project from the repo with the build settings above.
-3. Add `openshaper.com` as a custom domain in the Pages project (Cloudflare manages DNS).
-4. Replace the placeholder `apps/web/public/og-cover.svg` with a rasterized 1200×630
-   `og-cover.png` if you want maximum social-scraper compatibility (then update the
-   `OG_IMAGE` path in `apps/web/src/seo/site.ts`).
+1. In the Cloudflare dashboard, set the project's **build command** to `pnpm build` (deploy
+   command `npx wrangler deploy` is the default). Output dir + Node come from the repo.
+2. Add `openshaper.com` as a **custom domain** on the Worker (Cloudflare manages DNS).
+3. Optionally replace `apps/web/public/og-cover.svg` with a rasterized 1200×630 `og-cover.png`
+   for maximum social-scraper compatibility (then update `OG_IMAGE` in `apps/web/src/seo/site.ts`).
 
 ## Contributing
 

@@ -1,9 +1,17 @@
-# Cloudflare Pages configuration.
+# Cloudflare Workers (Static Assets) configuration.
 #
-# `name` MUST match the Pages project name in your Cloudflare dashboard.
-# `pages_build_output_dir` is the directory `pnpm build` publishes — Cloudflare
-# reads it from here, so you only need to set the *build command* (`pnpm build`)
-# in the dashboard. Node version is pinned by the repo's .node-version file.
+# The repo is deployed via `npx wrangler deploy`, which publishes the prerendered
+# static build in `apps/web/dist` as an assets-only Worker (no server code).
+#
+# `name` MUST match the Worker's name in your Cloudflare dashboard. `_headers`
+# and `_redirects` in the assets directory are honored. Node version is pinned by
+# the repo's .node-version file; the build command (`pnpm build`) is set in the
+# dashboard.
 name = "openshaper"
-pages_build_output_dir = "apps/web/dist"
 compatibility_date = "2026-06-01"
+
+[assets]
+# `pnpm build` prerenders every route to its own index.html here. Default
+# html_handling serves /about -> /about/index.html; unknown paths 404 (no SPA
+# catch-all needed, since every real route is prerendered).
+directory = "apps/web/dist"
