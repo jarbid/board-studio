@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Board Studio">
+  <rect width="32" height="32" rx="7" fill="#0b1220"/>
+  <path d="M16 3.5c4 5 5 8.5 5 12.5s-1 8.5-5 12.5c-4-4-5-8.5-5-12.5s1-7.5 5-12.5z"
+        fill="#10b981"/>
+  <line x1="16" y1="5" x2="16" y2="27" stroke="#0b1220" stroke-width="1" opacity="0.55"/>
+</svg>
