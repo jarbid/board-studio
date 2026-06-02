@@ -38,6 +38,7 @@ export function CrossSectionControls({
         className={icon}
         disabled={index <= 1}
         onClick={onPrev}
+        aria-label="Previous cross-section"
         title="Previous cross-section ( [ )"
       >
         <ChevronLeft />
@@ -51,6 +52,7 @@ export function CrossSectionControls({
         className={icon}
         disabled={index >= total}
         onClick={onNext}
+        aria-label="Next cross-section"
         title="Next cross-section ( ] )"
       >
         <ChevronRight />
@@ -61,6 +63,7 @@ export function CrossSectionControls({
         variant="ghost"
         className={icon}
         onClick={onAdd}
+        aria-label="Add cross-section"
         title="Add a cross-section here"
       >
         <Plus />
@@ -71,6 +74,7 @@ export function CrossSectionControls({
         className={icon}
         disabled={total <= 1}
         onClick={onDelete}
+        aria-label="Delete cross-section"
         title="Delete this cross-section"
       >
         <Trash2 />
@@ -80,6 +84,7 @@ export function CrossSectionControls({
         variant="ghost"
         className={icon}
         onClick={onCopy}
+        aria-label="Copy cross-section"
         title="Copy this cross-section"
       >
         <Copy />
@@ -90,6 +95,7 @@ export function CrossSectionControls({
         className={icon}
         disabled={!canPaste}
         onClick={onPaste}
+        aria-label="Paste cross-section"
         title="Paste the copied cross-section shape here"
       >
         <ClipboardPaste />
