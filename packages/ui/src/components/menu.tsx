@@ -73,7 +73,8 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
       panelRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [],
     );
     const i = btns.indexOf(document.activeElement as HTMLButtonElement);
-    const next = e.key === 'ArrowDown' ? i + 1 : i - 1;
+    const next =
+      e.key === 'ArrowDown' ? (i === -1 ? 0 : i + 1) : i === -1 ? btns.length - 1 : i - 1;
     btns[(next + btns.length) % btns.length]?.focus();
   };
 
@@ -107,6 +108,7 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
               return (
                 <div
                   key={idx}
+                  role="presentation"
                   className="px-2 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                 >
                   {item.label}
@@ -122,7 +124,7 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
                 disabled={item.kind === 'action' && item.disabled}
                 onClick={() => {
                   item.onSelect();
-                  ctx?.open(null);
+                  if (item.kind === 'action') ctx?.open(null);
                 }}
                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
               >
