@@ -1,4 +1,5 @@
 import type { BezierBoard, Vec2 } from '@openshaper/kernel';
+import { adjustCrossSectionsToThicknessAndWidth } from '@openshaper/kernel';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { InterpolationType, Spline } from '@openshaper/kernel';
 import {
@@ -75,11 +76,15 @@ export const createBoardStore = (): StoreApi<BoardState> =>
     const commit = (next: BezierBoard) => {
       const { board, editing, past } = get();
       if (!board) return;
+      // Slave the stored cross-sections to the rocker/deck (thickness) and outline
+      // (width) at their stations, so editing a global curve resizes the sections in
+      // that area (legacy adjustCrosssectionsToThicknessAndWidth on every change).
+      const settled = adjustCrossSectionsToThicknessAndWidth(next);
       if (editing) {
-        set({ board: next }); // snapshot already taken at beginEdit
+        set({ board: settled }); // snapshot already taken at beginEdit
       } else {
         set({
-          board: next,
+          board: settled,
           past: [...past, board].slice(-MAX_HISTORY),
           future: [],
         });
@@ -105,7 +110,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
 
       load: (board) =>
         set({
-          board: enforceJunctions(board),
+          board: adjustCrossSectionsToThicknessAndWidth(enforceJunctions(board)),
           past: [],
           future: [],
           editing: false,

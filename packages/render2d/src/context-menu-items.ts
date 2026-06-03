@@ -31,6 +31,12 @@ export interface ContextMenuRequest {
   store: StoreApi<BoardState>;
   /** Re-home the viewport to fit the curves (owned by the editor). */
   onFitView: () => void;
+  /**
+   * Insert a cross-section at a board-length position (cursor x). Only provided for
+   * length-axis panes (outline / rocker); when present, the menu offers "Add
+   * cross-section here". The cross-section pane's x is lateral, so it omits this.
+   */
+  onAddSectionAt?: (x: number) => void;
 }
 
 /**
@@ -46,7 +52,7 @@ export interface ContextMenuRequest {
  * store commands. Pure: it only wires `onSelect` handlers and reads a board snapshot.
  */
 export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
-  const { board, targets, vp, screen, mirrorX, mirrorY, store, onFitView } = req;
+  const { board, targets, vp, screen, mirrorX, mirrorY, store, onFitView, onAddSectionAt } = req;
   const viewGroup: MenuItem[] = [
     { kind: 'separator' },
     { kind: 'action', label: 'Fit view', onSelect: onFitView },
@@ -88,18 +94,27 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     const dist = splineDistance(getTargetSpline(board, target), world);
     if (!best || dist < best.dist) best = { target, dist };
   }
+  const items: MenuItem[] = [];
   if (best && best.dist <= tolWorld) {
     const addTarget = best.target;
-    return [
-      {
-        kind: 'action',
-        label: 'Add point here',
-        onSelect: () => store.getState().addControlPoint(addTarget, world),
-      },
-      ...viewGroup,
-    ];
+    items.push({
+      kind: 'action',
+      label: 'Add point here',
+      onSelect: () => store.getState().addControlPoint(addTarget, world),
+    });
+  }
+  // A cross-section can be added anywhere along the length axis (it just needs an x),
+  // so this is offered whether or not we landed near a curve.
+  if (onAddSectionAt) {
+    const x = world.x;
+    items.push({
+      kind: 'action',
+      label: 'Add cross-section here',
+      onSelect: () => onAddSectionAt(x),
+    });
   }
 
-  // 3. Empty space — view group only (drop the leading separator).
+  // 3. Otherwise — the gathered items (if any) plus the view group, else view group only.
+  if (items.length > 0) return [...items, ...viewGroup];
   return viewGroup.slice(1);
 }

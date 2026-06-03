@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   board,
   crossSection,
+  csCenterThickness,
+  csWidth,
+  getThicknessAtPos,
+  getWidthAtPos,
   knot,
   splineFromKnots,
   valueAt,
@@ -73,6 +77,74 @@ describe('board store: editing + undo/redo', () => {
     expect(store.getState().past).toHaveLength(1);
     store.getState().undo();
     expect(store.getState().board).toBe(original);
+  });
+});
+
+describe('board store: curve coupling (rocker/outline → cross-sections)', () => {
+  // 3-knot bottom/deck so the mid station can be driven without nose/tail tip joins
+  // interfering. Mid: width 40 (outline y=20), thickness 6 (deck 9 − bottom 3).
+  const makeCoupledBoard = (): BezierBoard => {
+    const k = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
+    const outline = splineFromKnots([k(0, 0), k(50, 20), k(100, 0)]);
+    const bottom = splineFromKnots([k(0, 2), k(50, 3), k(100, 2)]);
+    const deck = splineFromKnots([k(0, 8), k(50, 9), k(100, 8)]);
+    // profile thickness 3 (5→8), width 20 (maxX 10) — deliberately off, so slaving resizes it.
+    const prof = splineFromKnots([
+      knot(vec2(0, 5), vec2(0, 5), vec2(10, 5)),
+      knot(vec2(10, 8), vec2(10, 6), vec2(10, 8)),
+    ]);
+    const cs = [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)];
+    return board(outline, bottom, deck, cs);
+  };
+
+  it('slaves the interior station to thickness & width on load', () => {
+    const store = createBoardStore();
+    store.getState().load(makeCoupledBoard());
+    const b = store.getState().board!;
+    const mid = b.crossSections[1]!;
+    expect(csCenterThickness(mid)).toBeCloseTo(getThicknessAtPos(b, 50), 6);
+    expect(csWidth(mid)).toBeCloseTo(getWidthAtPos(b, 50), 6);
+  });
+
+  it('grows the interior station when the deck is raised in the rocker editor', () => {
+    const store = createBoardStore();
+    store.getState().load(makeCoupledBoard());
+    const before = csCenterThickness(store.getState().board!.crossSections[1]!);
+
+    // Raise the deck's middle control point (rocker editor edits the deck spline).
+    store.getState().moveControlPoint({ kind: 'deck' }, 1, vec2(50, 15));
+
+    const b = store.getState().board!;
+    const mid = b.crossSections[1]!;
+    expect(csCenterThickness(mid)).toBeCloseTo(getThicknessAtPos(b, 50), 6);
+    expect(csCenterThickness(mid)).toBeGreaterThan(before);
+  });
+
+  it('widens the interior station when the outline is widened', () => {
+    const store = createBoardStore();
+    store.getState().load(makeCoupledBoard());
+    const before = csWidth(store.getState().board!.crossSections[1]!);
+
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 30));
+
+    const b = store.getState().board!;
+    const mid = b.crossSections[1]!;
+    expect(csWidth(mid)).toBeCloseTo(getWidthAtPos(b, 50), 6);
+    expect(csWidth(mid)).toBeGreaterThan(before);
+  });
+
+  it('keeps the station slaved when its own profile is edited (shape-only)', () => {
+    const store = createBoardStore();
+    store.getState().load(makeCoupledBoard());
+    const target = { kind: 'crossSection', index: 1 } as const;
+    const before = getThicknessAtPos(store.getState().board!, 50);
+
+    // Try to make the section much thicker by dragging its deck-center point up.
+    store.getState().moveControlPoint(target, 1, vec2(0, 40));
+
+    // Overall thickness snaps back to what the rocker/deck dictate (rocker owns it).
+    const mid = store.getState().board!.crossSections[1]!;
+    expect(csCenterThickness(mid)).toBeCloseTo(before, 6);
   });
 });
 

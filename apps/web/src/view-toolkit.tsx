@@ -273,6 +273,8 @@ export function EditorPane({
   units,
   sectionMarkers,
   onPickSection,
+  onAddSectionAt,
+  onScrub,
   overlays,
   ghostSplines,
   background,
@@ -284,6 +286,8 @@ export function EditorPane({
   units: LengthUnit;
   sectionMarkers?: SectionMarker[];
   onPickSection?: (index: number) => void;
+  onAddSectionAt?: (x: number) => void;
+  onScrub?: (x: number | null) => void;
   overlays?: EditorOverlays;
   ghostSplines?: Spline[];
   background?: React.ComponentProps<typeof SplineEditor>['background'];
@@ -305,8 +309,10 @@ export function EditorPane({
           targets={p.targets}
           mirrorY={p.mirrorY}
           mirrorX={p.mirrorX}
-          sectionMarkers={kind === 'outline' ? sectionMarkers : undefined}
-          onPickSection={kind === 'outline' ? onPickSection : undefined}
+          sectionMarkers={kind !== 'crossSection' ? sectionMarkers : undefined}
+          onPickSection={kind !== 'crossSection' ? onPickSection : undefined}
+          onAddSectionAt={kind !== 'crossSection' ? onAddSectionAt : undefined}
+          onScrub={kind !== 'crossSection' ? onScrub : undefined}
           readout={makeReadout(kind, units)}
           overlays={overlays}
           ghostSplines={ghostSplines}

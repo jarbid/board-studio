@@ -110,4 +110,32 @@ describe('buildContextMenuItems', () => {
     (items[0] as { onSelect: () => void }).onSelect();
     expect(onFitView).toHaveBeenCalledOnce();
   });
+
+  it('offers "Add cross-section here" when onAddSectionAt is provided, calling it with cursor x', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    const onAddSectionAt = vi.fn();
+    // A point off the curve and away from any handle (empty space) at world x=30.
+    const items = buildContextMenuItems({
+      board: store.getState().board!,
+      targets: TARGETS,
+      vp: VP,
+      screen: worldToScreen(VP, vec2(30, 50)),
+      mirrorX: false,
+      mirrorY: false,
+      store,
+      onFitView: vi.fn(),
+      onAddSectionAt,
+    });
+
+    expect(labels(items)).toEqual(['Add cross-section here', 'Fit view']);
+    (find(items, 'Add cross-section here') as { onSelect: () => void }).onSelect();
+    expect(onAddSectionAt).toHaveBeenCalledWith(30);
+  });
+
+  it('omits "Add cross-section here" when onAddSectionAt is absent (cross-section pane)', () => {
+    const { build } = setup();
+    const items = build(worldToScreen(VP, vec2(30, 50)));
+    expect(labels(items)).not.toContain('Add cross-section here');
+  });
 });

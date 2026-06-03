@@ -124,6 +124,9 @@ function AppShell() {
   const specs = settledBoard ? selectSpecs(settledBoard) : null;
   const [view, setView] = useState<View>('quad');
   const [csIndex, setCsIndex] = useState(1);
+  // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
+  // mirrored to the other panes as a vertical guide + an interpolated section preview.
+  const [scrubX, setScrubX] = useState<number | null>(null);
   const [unitKey, setUnitKey] = useState<string>(
     () => localStorage.getItem('bs.lengthUnit') ?? DEFAULT_LENGTH_UNIT.key,
   );
@@ -172,14 +175,18 @@ function AppShell() {
     : [];
 
   // Cross-section management (legacy Cross-sections menu), shown in the cross-section pane header.
+  /** Insert a station at an explicit board-length x (the rocker/outline right-click action). */
+  const addSectionAt = (pos: number) => {
+    const idx = boardStore.getState().addCrossSection(pos);
+    if (idx > 0) setCsIndex(idx);
+  };
   const addSection = () => {
     const b = boardStore.getState().board;
     if (!b) return;
     const cur = b.crossSections[clampedCs]?.position ?? 0;
     const next = b.crossSections[clampedCs + 1]?.position ?? cur;
     const pos = next > cur ? (cur + next) / 2 : cur + 5; // midpoint, or nudge past the last
-    const idx = boardStore.getState().addCrossSection(pos);
-    if (idx > 0) setCsIndex(idx);
+    addSectionAt(pos);
   };
   const deleteSection = () => boardStore.getState().deleteCrossSection(clampedCs);
   const copySection = () => {
@@ -256,26 +263,48 @@ function AppShell() {
 
   const overlaysFor = (kind: EditorKind): EditorOverlays => {
     const longitudinal = kind === 'outline' || kind === 'rocker';
+    const verticalMarkers: { x: number; color: string; label?: string }[] = [];
+    if (longitudinal && overlayToggles.com && specs)
+      verticalMarkers.push({ x: specs.centerOfMass, color: '#22D3EE', label: 'CoM' });
+    // Cross-pane scrub guide: the hovered board-x, shown in every length-axis pane.
+    if (longitudinal && scrubX != null) verticalMarkers.push({ x: scrubX, color: '#F59E0B' });
     return {
       curvatureComb: overlayToggles.comb,
-      verticalMarkers:
-        longitudinal && overlayToggles.com && specs
-          ? [{ x: specs.centerOfMass, color: '#22D3EE', label: 'CoM' }]
-          : undefined,
+      verticalMarkers: verticalMarkers.length ? verticalMarkers : undefined,
       distribution: longitudinal ? volumeDist : undefined,
       fins: kind === 'outline' ? finMarkers : undefined,
     };
   };
 
-  // Ghost (reference) board overlay + comparison.
+  // Read-only ghost splines per pane: the reference (ghost) board comparison, plus — for
+  // the cross-section pane — the live interpolated section at the scrub x and faint
+  // neighbour stations (fairing context).
   const ghostSplinesFor = (kind: EditorKind): Spline[] | undefined => {
-    if (!ghost) return undefined;
-    if (kind === 'outline') return [ghost.outline];
-    if (kind === 'rocker') return [ghost.deck, ghost.bottom];
-    const pos = board?.crossSections[clampedCs]?.position;
-    if (pos === undefined) return undefined;
-    const cs = getInterpolatedCrossSection(ghost, pos);
-    return cs ? [cs.spline] : undefined;
+    const out: Spline[] = [];
+    if (ghost) {
+      if (kind === 'outline') out.push(ghost.outline);
+      else if (kind === 'rocker') out.push(ghost.deck, ghost.bottom);
+      else {
+        const pos = board?.crossSections[clampedCs]?.position;
+        if (pos !== undefined) {
+          const cs = getInterpolatedCrossSection(ghost, pos);
+          if (cs) out.push(cs.spline);
+        }
+      }
+    }
+    if (kind === 'crossSection' && board) {
+      if (scrubX != null) {
+        const preview = getInterpolatedCrossSection(board, scrubX);
+        if (preview) out.push(preview.spline);
+      }
+      // Adjacent real stations (skip the nose/tail dummies at 0 / last).
+      const last = board.crossSections.length - 1;
+      const prev = clampedCs - 1;
+      const next = clampedCs + 1;
+      if (prev >= 1) out.push(board.crossSections[prev]!.spline);
+      if (next <= last - 1) out.push(board.crossSections[next]!.spline);
+    }
+    return out.length ? out : undefined;
   };
   const ghostSpecs = useMemo(() => (ghost ? selectSpecs(ghost) : null), [ghost]);
 
@@ -592,6 +621,8 @@ function AppShell() {
                 units={units}
                 sectionMarkers={sectionMarkers}
                 onPickSection={setCsIndex}
+                onAddSectionAt={addSectionAt}
+                onScrub={setScrubX}
                 overlays={overlaysFor('outline')}
                 ghostSplines={ghostSplinesFor('outline')}
                 background={traceBg}
@@ -610,6 +641,10 @@ function AppShell() {
                 kind="rocker"
                 csIndex={clampedCs}
                 units={units}
+                sectionMarkers={sectionMarkers}
+                onPickSection={setCsIndex}
+                onAddSectionAt={addSectionAt}
+                onScrub={setScrubX}
                 overlays={overlaysFor('rocker')}
                 ghostSplines={ghostSplinesFor('rocker')}
               />
@@ -668,6 +703,8 @@ function AppShell() {
               units={units}
               sectionMarkers={sectionMarkers}
               onPickSection={setCsIndex}
+              onAddSectionAt={addSectionAt}
+              onScrub={setScrubX}
               overlays={overlaysFor(view)}
               ghostSplines={ghostSplinesFor(view)}
               background={traceBg}

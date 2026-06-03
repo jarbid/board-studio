@@ -51,6 +51,17 @@ export interface SplineEditorProps {
   sectionMarkers?: SectionMarker[];
   /** Called when a section marker is clicked. */
   onPickSection?: (index: number) => void;
+  /**
+   * Insert a cross-section at a board-length position (cursor x), surfaced as an
+   * "Add cross-section here" context-menu item. Length-axis panes (outline/rocker) only.
+   */
+  onAddSectionAt?: (x: number) => void;
+  /**
+   * Report the hovered board-length x for the cross-pane scrub cursor (length-axis panes
+   * only); called with null when the pointer leaves. The owner mirrors it to the other
+   * panes (a vertical guide + an interpolated section preview).
+   */
+  onScrub?: (x: number | null) => void;
   /** Live measurements for the hovered world point, shown as a corner HUD. */
   readout?: (world: Vec2) => { label: string; value: string }[];
   /** Toggleable analysis overlays (curvature comb, CoM marker, distribution). */
@@ -109,6 +120,8 @@ export function SplineEditor({
   colors,
   sectionMarkers,
   onPickSection,
+  onAddSectionAt,
+  onScrub,
   readout,
   overlays,
   ghostSplines,
@@ -316,8 +329,10 @@ export function SplineEditor({
       if (!vp) return;
       const p = localPoint(e);
       if (!d) {
-        // No drag: report the hovered world point for the readout HUD.
-        if (readout) setHover(screenToWorld(vp, p));
+        // No drag: report the hovered world point for the readout HUD + cross-pane scrub.
+        const w = screenToWorld(vp, p);
+        if (readout) setHover(w);
+        onScrub?.(w.x);
         return;
       }
       if (d.mode === 'pan') {
@@ -350,7 +365,7 @@ export function SplineEditor({
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, world);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, world);
     },
-    [vp, store, readout],
+    [vp, store, readout, onScrub],
   );
 
   const onPointerUp = useCallback(
@@ -371,6 +386,7 @@ export function SplineEditor({
           mirrorY,
           store,
           onFitView: fitView,
+          onAddSectionAt,
         });
         setMenu({ x: e.clientX, y: e.clientY, items });
       }
@@ -378,7 +394,7 @@ export function SplineEditor({
       canvasRef.current?.releasePointerCapture(e.pointerId);
       setCursor(spaceHeld.current ? 'grab' : 'crosshair');
     },
-    [store, vp, board, targets, mirrorX, mirrorY, hitAny, fitView],
+    [store, vp, board, targets, mirrorX, mirrorY, hitAny, fitView, onAddSectionAt],
   );
 
   // A cancelled pointer (browser claimed the gesture, palm-rejection, etc.) ends any drag
@@ -461,7 +477,10 @@ export function SplineEditor({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
-        onPointerLeave={() => setHover(null)}
+        onPointerLeave={() => {
+          setHover(null);
+          onScrub?.(null);
+        }}
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
       />

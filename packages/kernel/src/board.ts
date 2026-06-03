@@ -15,6 +15,7 @@ import {
 import { DEG_TO_RAD, T_ONE, T_ZERO } from './constants';
 import {
   crossSection as makeCrossSection,
+  csCenterThickness,
   csWidth,
   interpolateCrossSection,
   scaleCrossSection,
@@ -190,6 +191,45 @@ export const getInterpolatedCrossSection = (b: BezierBoard, x: number): CrossSec
 
   const scaled = scaleCrossSection(interpolated, thickness, width);
   return makeCrossSection(x, scaled.spline);
+};
+
+// Below this (cm) a station is considered already at the target dimension, so it
+// is left alone — avoids pointless re-allocation (and float drift) on edits that
+// don't move that station's thickness/width.
+const ADJUST_EPS = 1e-6;
+
+/**
+ * Re-scale every interior (non-dummy) station so its centerline thickness and width
+ * match the board's global curves at that position — legacy
+ * `BezierBoard.adjustCrosssectionsToThicknessAndWidth`, which the legacy app runs after
+ * every rocker / outline / cross-section edit.
+ *
+ * This is what couples the curves: the rocker+deck own a station's centerline thickness
+ * (`getThicknessAtPos`) and the outline owns its width (`getWidthAtPos`), so editing a
+ * global curve resizes the stored stations in that area, and a section edit only restyles
+ * the profile shape. The nose/tail dummies (index 0 and last) are left untouched — their
+ * ~zero dimensions would blow up the scale. Returns the same board reference when no
+ * station needed to move (so undo / React don't see churn).
+ */
+export const adjustCrossSectionsToThicknessAndWidth = (b: BezierBoard): BezierBoard => {
+  const cs = b.crossSections;
+  if (cs.length <= 2) return b;
+  let changed = false;
+  const next = cs.map((c, i) => {
+    if (i === 0 || i === cs.length - 1) return c;
+    const targetThickness = getThicknessAtPos(b, c.position);
+    const targetWidth = getWidthAtPos(b, c.position);
+    if (
+      Math.abs(csCenterThickness(c) - targetThickness) < ADJUST_EPS &&
+      Math.abs(csWidth(c) - targetWidth) < ADJUST_EPS
+    ) {
+      return c;
+    }
+    const scaled = scaleCrossSection(c, targetThickness, targetWidth);
+    if (scaled !== c) changed = true;
+    return scaled;
+  });
+  return changed ? board(b.outline, b.bottom, b.deck, next, b.interpolationType) : b;
 };
 
 // --- sLinear (station-linear / arc-length) interpolation model ---
