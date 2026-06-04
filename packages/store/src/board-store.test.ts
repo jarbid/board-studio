@@ -4,6 +4,9 @@ import {
   crossSection,
   csCenterThickness,
   csWidth,
+  getLength,
+  getLengthOverCurve,
+  getRockerAtPos,
   getThicknessAtPos,
   getWidthAtPos,
   knot,
@@ -232,5 +235,40 @@ describe('edits: continuous tangent mirroring', () => {
     // prev should mirror to (0,-1): opposite direction, original length 1 preserved.
     expect(k.tangentToPrev.x).toBeCloseTo(0, 9);
     expect(k.tangentToPrev.y).toBeCloseTo(-1, 9);
+  });
+});
+
+// Pins the nose/tail station readouts to the legacy BoardSpec convention: the
+// axis runs tail (x=0) → nose (x=length), measurements are taken one/two feet in
+// from each tip (FOOT = 30.48 cm), and the kernel getters (golden-pinned in the
+// kernel package) are wired to the right end. Guards against the easy regressions:
+// swapped nose/tail, wrong foot constant, baseline subtraction creeping in.
+describe('selectors: nose/tail station readouts', () => {
+  const FOOT = 30.48;
+
+  it('wires every station field to the correct end and offset', () => {
+    const b = makeBoard(); // length 100 → 24" stations (60.96 cm) are in range
+    const len = getLength(b);
+    const specs = selectSpecs(b);
+
+    expect(specs.noseWidth).toBeCloseTo(getWidthAtPos(b, len - FOOT), 6);
+    expect(specs.tailWidth).toBeCloseTo(getWidthAtPos(b, FOOT), 6);
+    expect(specs.noseThickness).toBeCloseTo(getThicknessAtPos(b, len - FOOT), 6);
+    expect(specs.tailThickness).toBeCloseTo(getThicknessAtPos(b, FOOT), 6);
+
+    // Rocker tips are sampled a hair inside the end (legacy 0.005 / 0.001 epsilons).
+    expect(specs.noseRocker).toBeCloseTo(getRockerAtPos(b, len - 0.005), 6);
+    expect(specs.tailRocker).toBeCloseTo(getRockerAtPos(b, 0.001), 6);
+    expect(specs.noseRocker1).toBeCloseTo(getRockerAtPos(b, len - FOOT), 6);
+    expect(specs.tailRocker1).toBeCloseTo(getRockerAtPos(b, FOOT), 6);
+    expect(specs.noseRocker2).toBeCloseTo(getRockerAtPos(b, len - 2 * FOOT), 6);
+    expect(specs.tailRocker2).toBeCloseTo(getRockerAtPos(b, 2 * FOOT), 6);
+
+    expect(specs.lengthOverCurve).toBeCloseTo(getLengthOverCurve(b), 6);
+  });
+
+  it('memoizes by board identity (station reads are O(1) but ride the cache)', () => {
+    const b = makeBoard();
+    expect(selectSpecs(b)).toBe(selectSpecs(b));
   });
 });
