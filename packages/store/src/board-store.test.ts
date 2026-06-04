@@ -4,6 +4,7 @@ import {
   crossSection,
   csCenterThickness,
   csWidth,
+  getDeckAtPos,
   getLength,
   getLengthOverCurve,
   getRockerAtPos,
@@ -136,18 +137,42 @@ describe('board store: curve coupling (rocker/outline → cross-sections)', () =
     expect(csWidth(mid)).toBeGreaterThan(before);
   });
 
-  it('keeps the station slaved when its own profile is edited (shape-only)', () => {
+  it('drives the deck two-way when the section centerline is dragged (no snap-back)', () => {
     const store = createBoardStore();
     store.getState().load(makeCoupledBoard());
     const target = { kind: 'crossSection', index: 1 } as const;
-    const before = getThicknessAtPos(store.getState().board!, 50);
+    const beforeThk = getThicknessAtPos(store.getState().board!, 50);
+    const knots = store.getState().board!.crossSections[1]!.spline.knots;
+    const last = knots.length - 1; // last knot = deck-center driver
+    const deckCenter = knots[last]!.end;
 
-    // Try to make the section much thicker by dragging its deck-center point up.
-    store.getState().moveControlPoint(target, 1, vec2(0, 40));
+    // Drag the deck-center up (keep its x so width is unaffected).
+    store.getState().moveControlPoint(target, last, vec2(deckCenter.x, deckCenter.y + 3));
 
-    // Overall thickness snaps back to what the rocker/deck dictate (rocker owns it).
-    const mid = store.getState().board!.crossSections[1]!;
-    expect(csCenterThickness(mid)).toBeCloseTo(before, 6);
+    const b = store.getState().board!;
+    // The deck rose: thickness increased (propagated) instead of snapping back, and the
+    // section stays consistent with the curve.
+    expect(getThicknessAtPos(b, 50)).toBeGreaterThan(beforeThk + 2);
+    expect(csCenterThickness(b.crossSections[1]!)).toBeCloseTo(getThicknessAtPos(b, 50), 4);
+  });
+
+  it('undoes a section-driven deck change in one step', () => {
+    const store = createBoardStore();
+    store.getState().load(makeCoupledBoard());
+    const original = store.getState().board!;
+    const beforeDeck = getDeckAtPos(original, 50);
+    const knots = original.crossSections[1]!.spline.knots;
+    const last = knots.length - 1;
+    const dc = knots[last]!.end;
+
+    store
+      .getState()
+      .moveControlPoint({ kind: 'crossSection', index: 1 }, last, vec2(dc.x, dc.y + 3));
+    expect(getDeckAtPos(store.getState().board!, 50)).toBeGreaterThan(beforeDeck + 2);
+
+    // One undo restores the whole board — section AND the propagated deck together.
+    store.getState().undo();
+    expect(store.getState().board).toBe(original);
   });
 });
 
