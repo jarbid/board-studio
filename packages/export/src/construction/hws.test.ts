@@ -131,12 +131,26 @@ describe('buildHwsTemplates — geometry invariants', () => {
 describe('sheet writers', () => {
   const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 4 });
 
-  it('DXF declares CUT/MARK layers and emits polylines', () => {
+  it('DXF declares CUT/MARK layers, millimetre units, and emits polylines', () => {
     const dxf = sheetToDxf(sheet);
     expect(dxf).toContain('CUT');
     expect(dxf).toContain('MARK');
     expect(dxf).toContain('POLYLINE');
+    // Units declared as millimetres ($INSUNITS = 4) so importers don't guess.
+    expect(dxf).toMatch(/\$INSUNITS\n70\n4\n/);
     expect(dxf.endsWith('EOF\n')).toBe(true);
+  });
+
+  it('DXF and SVG agree on scale (both millimetres)', () => {
+    // The widest coordinate should match between formats (mm), not differ ×10.
+    const dxf = sheetToDxf(sheet);
+    const svg = sheetToSvg(sheet);
+    const maxCoord = (text: string, re: RegExp): number =>
+      Math.max(...[...text.matchAll(re)].map((m) => parseFloat(m[1]!)));
+    const dxfMax = maxCoord(dxf, /\n10\n([\d.]+)\n/g); // DXF x coords (group 10)
+    const svgMax = maxCoord(svg, /[ML]([\d.]+) /g); // SVG path x coords
+    expect(dxfMax).toBeGreaterThan(100); // mm-scale for a board > 1 m, not cm
+    expect(dxfMax).toBeCloseTo(svgMax, 0);
   });
 
   it('SVG is mm-sized, one <g> per part, cut=red / mark=blue', () => {
