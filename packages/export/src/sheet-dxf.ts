@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Render a {@link TemplateSheet} to ASCII (R12) DXF. Parts are laid out in a row.
+ * Render a {@link TemplateSheet} to ASCII (R12) DXF. Parts are stacked top-to-
+ * bottom, each centred on a common axis (nose rib at the top, tail at the bottom).
  * Layers: CUT (through-cuts incl. slots), CUTINNER (lightening holes), MARK
  * (centrelines / station lines, dashed), LABEL (text).
  *
@@ -9,7 +10,7 @@
  * by the unit factor on the way out, and the file declares `$INSUNITS` so importers
  * don't guess and land the parts at the wrong scale.
  */
-import { rowLayout } from './construction/geom';
+import { columnLayout } from './construction/geom';
 import type { Loop, Part, Pt, TemplateSheet } from './construction/types';
 import { SHEET_UNIT, type SheetUnit } from './construction/units';
 
@@ -90,7 +91,7 @@ export const sheetToDxf = (sheet: TemplateSheet, opts: DxfSheetOptions = {}): st
   const { factor, dxfCode } = SHEET_UNIT[unit];
   const num = (cm: number): string => (Number.isFinite(cm) ? cm * factor : 0).toFixed(4);
 
-  const parts = rowLayout(sheet.parts, GAP);
+  const parts = columnLayout(sheet.parts, GAP);
   const out: string[] = ['999', `OpenShaper template: ${sheet.meta?.title ?? ''}`];
   headerSection(out, dxfCode);
   tablesSection(out);

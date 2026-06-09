@@ -14,6 +14,27 @@ const board = makeTestBoard();
 const allPts = (part: Part): Pt[] => part.loops.flatMap((l) => [...l.pts]);
 const cutLoop = (part: Part) => part.loops.find((l) => l.kind === 'cut')!;
 
+/** O(n²) self-intersection scan over a closed polyline. */
+const hasSelfIntersection = (pts: readonly Pt[]): boolean => {
+  const n = pts.length;
+  const seg = (i: number): [Pt, Pt] => [pts[i]!, pts[(i + 1) % n]!];
+  const cross = (ox: number, oy: number, ax: number, ay: number, bx: number, by: number): number =>
+    (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+  for (let i = 0; i < n; i++) {
+    const [a, b] = seg(i);
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue; // adjacent (wraps)
+      const [c, d] = seg(j);
+      const d1 = cross(c.x, c.y, d.x, d.y, a.x, a.y);
+      const d2 = cross(c.x, c.y, d.x, d.y, b.x, b.y);
+      const d3 = cross(a.x, a.y, b.x, b.y, c.x, c.y);
+      const d4 = cross(a.x, a.y, b.x, b.y, d.x, d.y);
+      if (d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0) return true;
+    }
+  }
+  return false;
+};
+
 describe('buildHwsTemplates — part composition', () => {
   it('emits one stringer + N ribs + two skins (evenCount)', () => {
     const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 5 });
@@ -108,6 +129,32 @@ describe('buildHwsTemplates — geometry invariants', () => {
     expect(found).toBe(true);
   });
 
+  it('stringer cut-loop has no self-intersections', () => {
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 6,
+      materialThickness: 0.8,
+    });
+    const stringer = sheet.parts.find((p) => p.id === 'stringer')!;
+    expect(hasSelfIntersection(cutLoop(stringer).pts)).toBe(false);
+  });
+
+  it('rib cut-loop has no self-intersections', () => {
+    const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 1 });
+    const rib = sheet.parts.find((p) => p.id.startsWith('rib-'))!;
+    expect(hasSelfIntersection(cutLoop(rib).pts)).toBe(false);
+  });
+
+  it('skin overhang at 2 cm produces a simple loop', () => {
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 4,
+      skinOverhang: 2,
+    });
+    const skin = sheet.parts.find((p) => p.id === 'skin-deck')!;
+    expect(hasSelfIntersection(cutLoop(skin).pts)).toBe(false);
+  });
+
   it('rib + stringer half-lap depths sum to the internal height', () => {
     const halfLap = 0.5;
     const sheet = buildHwsTemplates(board, {
@@ -125,6 +172,162 @@ describe('buildHwsTemplates — geometry invariants', () => {
     const slotTopY = Math.min(...roof.map((p) => p.y));
     const ribDepth = slotTopY - ybc;
     expect(ribDepth).toBeCloseTo((1 - halfLap) * H, 1);
+  });
+});
+
+describe('buildHwsTemplates — lightening', () => {
+  it('style "none" emits no inner cuts', () => {
+    const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 1 });
+    const rib = sheet.parts.find((p) => p.id.startsWith('rib-'))!;
+    expect(rib.loops.some((l) => l.kind === 'cutInner')).toBe(false);
+  });
+
+  it('leaves the stringer solid unless "lighten stringer" is on', () => {
+    const stringerInner = (lightenStringer: boolean): number => {
+      const sheet = buildHwsTemplates(board, {
+        ribMode: 'evenCount',
+        ribCount: 5,
+        lighteningStyle: 'truss',
+        lightenStringer,
+      });
+      const stringer = sheet.parts.find((p) => p.id === 'stringer')!;
+      return stringer.loops.filter((l) => l.kind === 'cutInner').length;
+    };
+    expect(stringerInner(false)).toBe(0);
+    expect(stringerInner(true)).toBeGreaterThan(0);
+  });
+
+  it('style "pocket" emits one simple inner loop that respects the web margin', () => {
+    const webMargin = 2;
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 1,
+      lighteningStyle: 'pocket',
+      webMargin,
+      pocketCornerRadius: 0.8,
+    });
+    const rib = sheet.parts.find((p) => p.id.startsWith('rib-'))!;
+    const inner = rib.loops.filter((l) => l.kind === 'cutInner');
+    expect(inner.length).toBeGreaterThanOrEqual(1);
+    for (const loop of inner) {
+      expect(hasSelfIntersection(loop.pts)).toBe(false);
+    }
+    // Every inner point sits inside the cut perimeter by at least webMargin - tol.
+    const cut = cutLoop(rib).pts;
+    const distToCut = (q: Pt): number => {
+      let min = Infinity;
+      for (let i = 0; i < cut.length; i++) {
+        const a = cut[i]!;
+        const b = cut[(i + 1) % cut.length]!;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.y - a.y) * dy) / len2));
+        const px = a.x + t * dx;
+        const py = a.y + t * dy;
+        const d = Math.hypot(px - q.x, py - q.y);
+        if (d < min) min = d;
+      }
+      return min;
+    };
+    const tol = 0.1; // 1 mm slack for Clipper integer rounding
+    for (const loop of inner) {
+      for (const q of loop.pts) {
+        expect(distToCut(q)).toBeGreaterThanOrEqual(webMargin - tol);
+      }
+    }
+  });
+
+  it('style "circles" emits round holes fitted to the rib, mirror-symmetric', () => {
+    const holeDiameter = 4;
+    const webMargin = 1;
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 1,
+      lighteningStyle: 'circles',
+      webMargin,
+      holeDiameter,
+      holeSpacing: 5,
+    });
+    const rib = sheet.parts.find((p) => p.id.startsWith('rib-'))!;
+    const inner = rib.loops.filter((l) => l.kind === 'cutInner');
+    expect(inner.length).toBeGreaterThanOrEqual(2);
+
+    const stats = inner.map((l) => {
+      const bb = bboxOfPts(l.pts);
+      return {
+        cx: (bb.minX + bb.maxX) / 2,
+        dia: bb.maxX - bb.minX,
+        aspect: (bb.maxX - bb.minX) / (bb.maxY - bb.minY),
+      };
+    });
+    for (const s of stats) {
+      // Round (bbox square) and never larger than the cap.
+      expect(s.aspect).toBeCloseTo(1, 1);
+      expect(s.dia).toBeLessThanOrEqual(holeDiameter + 0.05);
+      expect(s.dia).toBeGreaterThan(0.6);
+    }
+    // L/R mirror: every hole centre has a partner at the mirrored x.
+    const cxs = stats.map((s) => s.cx);
+    for (const cx of cxs) {
+      expect(cxs.some((d) => Math.abs(d + cx) < 0.3)).toBe(true);
+    }
+    // Holes fit the taper: the widest hole is nearer the centre than the
+    // narrowest (which sits out toward a thin tip).
+    const widest = stats.reduce((m, s) => (s.dia > m.dia ? s : m));
+    const narrowest = stats.reduce((m, s) => (s.dia < m.dia ? s : m));
+    expect(Math.abs(widest.cx)).toBeLessThan(Math.abs(narrowest.cx) + 1e-6);
+  });
+
+  it('style "truss" emits mirror-symmetric, simple pockets fitted to the rib', () => {
+    for (const trussAngle of [0, 30, 45]) {
+      const sheet = buildHwsTemplates(board, {
+        ribMode: 'evenCount',
+        ribCount: 1,
+        lighteningStyle: 'truss',
+        webMargin: 1.2,
+        webThickness: 1.0,
+        trussAngle,
+        trussSpacing: 7,
+      });
+      const rib = sheet.parts.find((p) => p.id.startsWith('rib-'))!;
+      const inner = rib.loops.filter((l) => l.kind === 'cutInner');
+      expect(inner.length).toBeGreaterThanOrEqual(3);
+      // No self-intersections.
+      for (const loop of inner) expect(hasSelfIntersection(loop.pts)).toBe(false);
+      // L/R mirror: every pocket centroid has a partner at the mirrored x.
+      const cents = inner.map((l) => {
+        const b = bboxOfPts(l.pts);
+        return (b.minX + b.maxX) / 2;
+      });
+      for (const c of cents) {
+        expect(cents.some((d) => Math.abs(d + c) < 0.3)).toBe(true);
+      }
+    }
+  });
+
+  it('truss bay spacing adapts per rib and stays simple across ribs', () => {
+    // Ribs at different stations have different widths; each gets a pitch fitted
+    // to its own width. Wider ribs get more bays; every emitted pocket is simple.
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 3,
+      lighteningStyle: 'truss',
+      webMargin: 1.2,
+      webThickness: 1.0,
+      trussAngle: 0,
+      trussSpacing: 7,
+    });
+    const ribs = sheet.parts.filter((p) => p.id.startsWith('rib-'));
+    expect(ribs.length).toBe(3);
+    let totalPockets = 0;
+    for (const rib of ribs) {
+      const inner = rib.loops.filter((l) => l.kind === 'cutInner');
+      totalPockets += inner.length;
+      for (const loop of inner) expect(hasSelfIntersection(loop.pts)).toBe(false);
+    }
+    // The wide centre rib is lightened even if the thin end ribs are not.
+    expect(totalPockets).toBeGreaterThanOrEqual(3);
   });
 });
 

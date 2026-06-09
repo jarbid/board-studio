@@ -10,7 +10,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@openshaper/kernel": "workspace:*"
+    "@openshaper/kernel": "workspace:*",
+    "clipper-lib": "^6.4.2"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

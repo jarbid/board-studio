@@ -1,5 +1,5 @@
 import { board, crossSection, knot, splineFromKnots, vec2 } from '@openshaper/kernel';
-import type { BezierBoard, CrossSection, Knot } from '@openshaper/kernel';
+import type { BezierBoard, CrossSection } from '@openshaper/kernel';
 
 /**
  * Build a small, well-formed test board with kernel builders only (no test-support
@@ -11,10 +11,6 @@ export const makeTestBoard = (): BezierBoard => {
   const length = 100;
   const halfWidth = 25;
   const deckCenter = 6;
-
-  // Smooth-ish handles: a third of the way to the neighbour, axis-aligned.
-  const k = (x: number, y: number, span: number): Knot =>
-    knot(vec2(x, y), vec2(x - span, y), vec2(x + span, y));
 
   // Outline: 0 at nose, halfWidth at mid, 0 at tail (half-width vs length).
   const outline = splineFromKnots([
@@ -39,11 +35,15 @@ export const makeTestBoard = (): BezierBoard => {
 
   // Cross-section profile: x = distance from centreline (>=0), y = height,
   // running bottom-centre (0,0) -> rail (halfWidth, mid) -> deck-centre (0, thick).
+  // Bottom/deck knots have horizontal tangents (curve enters/leaves centreline
+  // tangent to the x-axis); the rail knot has a VERTICAL tangent so the section
+  // has real thickness at the widest point — a horizontal tangent there would
+  // make the rail a cusp and any robust inward offset would collapse it.
   const profile = (w: number, thick: number) =>
     splineFromKnots([
-      k(0, 0, w * 0.2),
-      k(w, thick * 0.45, thick * 0.3),
-      k(0, thick, w * 0.2),
+      knot(vec2(0, 0), vec2(0, 0), vec2(w * 0.5, 0)),
+      knot(vec2(w, thick * 0.45), vec2(w, thick * 0.15), vec2(w, thick * 0.75)),
+      knot(vec2(0, thick), vec2(w * 0.5, thick), vec2(0, thick)),
     ]);
 
   const sections: CrossSection[] = [

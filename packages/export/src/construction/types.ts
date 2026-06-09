@@ -61,6 +61,13 @@ export interface TemplateSheet {
 export type RibMode = 'crossSections' | 'evenCount' | 'spacing';
 
 /**
+ * How a rib is lightened. `none` = solid, `pocket` = one filleted cut-out,
+ * `circles` = a row of holes, `truss` = a Warren truss (alternating diagonal
+ * webs forming triangular pockets between an outer rim).
+ */
+export type LighteningStyle = 'none' | 'pocket' | 'circles' | 'truss';
+
+/**
  * Parameters for the Hollow-Wood-Surfboard (HWS) internal-frame template builder.
  * All lengths in **centimetres** (the UI converts from mm at its boundary).
  */
@@ -89,9 +96,24 @@ export interface HwsParams {
   halfLapFraction: number;
 
   // --- Lightening ---
-  lighteningHoles: boolean;
-  /** Web left around a rib's perimeter when lightening holes are on. */
+  /** Lightening pattern for the ribs. */
+  lighteningStyle: LighteningStyle;
+  /** Web (cm) left around every rib cut edge — rails AND the stringer slot. */
   webMargin: number;
+  /** Internal fillet radius (cm) for the `pocket` style; avoids re-entrant 90° corners that crack ply. */
+  pocketCornerRadius: number;
+  /** Hole diameter (cm) for the `circles` style. */
+  holeDiameter: number;
+  /** Centre-to-centre spacing (cm) for the `circles` style. */
+  holeSpacing: number;
+  /** Also apply the lightening style to the stringer spine (default: ribs only). */
+  lightenStringer: boolean;
+  /** Strut width (cm) of the internal `truss` webs (distinct from the perimeter `webMargin` rim). */
+  webThickness: number;
+  /** Diagonal lean of the `truss` webs, in degrees: 0 = vertical posts, 45 = 45°. */
+  trussAngle: number;
+  /** Target bay pitch (cm) for the `truss`; the actual pitch is rounded so bays divide each rib's width evenly. */
+  trussSpacing: number;
 
   // --- Parts to emit ---
   includeStringer: boolean;
@@ -99,9 +121,7 @@ export interface HwsParams {
   includeDeckSkin: boolean;
   includeBottomSkin: boolean;
 
-  // --- Output / cutting ---
-  /** Tool-diameter kerf compensation; cut loops grow by kerf/2. Default 0 (let CAM do it). */
-  kerf: number;
+  // --- Output ---
   /** Extra material around the skin planshape. */
   skinOverhang: number;
   /** Adaptive sampling tolerance (cm): max chord deviation. Smaller = smoother. */
@@ -118,13 +138,19 @@ export const DEFAULT_HWS_PARAMS: HwsParams = {
   endMargin: 8,
   slotFit: 0.01, // 0.1 mm
   halfLapFraction: 0.5,
-  lighteningHoles: false,
-  webMargin: 2.5,
+  lighteningStyle: 'none',
+  webMargin: 1.5, // 15 mm rim
+  pocketCornerRadius: 0.3, // 3 mm fillet
+  holeDiameter: 3, // 30 mm
+  holeSpacing: 5, // 50 mm centre-to-centre
+  lightenStringer: false,
+  webThickness: 1.2, // 12 mm truss struts
+  trussAngle: 45, // 45° diagonals
+  trussSpacing: 8, // 80 mm target bay pitch
   includeStringer: true,
   includeRibs: true,
   includeDeckSkin: true,
   includeBottomSkin: true,
-  kerf: 0,
   skinOverhang: 1,
   sampleTolerance: 0.02, // 0.2 mm chord deviation
 };

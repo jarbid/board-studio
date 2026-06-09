@@ -4,10 +4,11 @@
  * follows the caller's {@link SheetUnit} (default `mm`): `width`/`height` carry
  * that unit and match the `viewBox`. Colour convention for laser software
  * (LightBurn / Glowforge): **red `#FF0000` = cut**, **blue `#0000FF` = engrave/mark**,
- * no fill. Also the source for the editor's live preview. Parts are laid out in a
- * row; SVG's y-down axis is flipped so the board reads the same way as in the editor.
+ * no fill. Also the source for the editor's live preview. Parts are stacked top-to-
+ * bottom (centred on a common axis); SVG's y-down axis is flipped so the board reads
+ * the same way as in the editor.
  */
-import { bboxOfPts, rowLayout } from './construction/geom';
+import { bboxOfPts, columnLayout } from './construction/geom';
 import type { Label, Loop, Pt, TemplateSheet } from './construction/types';
 import { SHEET_UNIT, type SheetUnit } from './construction/units';
 
@@ -28,7 +29,7 @@ export interface SvgOptions {
 export const sheetToSvg = (sheet: TemplateSheet, opts: SvgOptions = {}): string => {
   const unit: SheetUnit = opts.unit ?? 'mm';
   const k = SHEET_UNIT[unit].factor; // cm -> output unit
-  const parts = rowLayout(sheet.parts, GAP);
+  const parts = columnLayout(sheet.parts, GAP);
   const all: Pt[] = [];
   for (const part of parts) {
     for (const l of part.loops) all.push(...l.pts);

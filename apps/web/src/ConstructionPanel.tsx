@@ -235,17 +235,88 @@ export function ConstructionPanel({
             </Group>
 
             <Group title="Lightening">
-              <Toggle
-                label="Lightening holes"
-                checked={p.lighteningHoles}
-                onChange={(v) => set('lighteningHoles', v)}
-              />
-              {p.lighteningHoles && (
+              <label className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Style</span>
+                <select
+                  className="h-8 rounded border border-border bg-background px-2"
+                  value={p.lighteningStyle}
+                  onChange={(e) =>
+                    set('lighteningStyle', e.target.value as HwsParams['lighteningStyle'])
+                  }
+                >
+                  <option value="none">None (solid)</option>
+                  <option value="truss">Truss web</option>
+                  <option value="pocket">Pocket (filleted)</option>
+                  <option value="circles">Circular holes</option>
+                </select>
+              </label>
+              {p.lighteningStyle !== 'none' && (
                 <NumField
-                  label="Web margin"
+                  label="Web margin (rim)"
                   units={units}
                   value={p.webMargin}
                   onChange={(v) => set('webMargin', v)}
+                />
+              )}
+              {p.lighteningStyle === 'truss' && (
+                <>
+                  <NumField
+                    label="Web thickness"
+                    units={units}
+                    value={p.webThickness}
+                    onChange={(v) => set('webThickness', v)}
+                  />
+                  <NumField
+                    label="Bay spacing"
+                    units={units}
+                    value={p.trussSpacing}
+                    onChange={(v) => set('trussSpacing', v)}
+                  />
+                  <NumField
+                    label="Diagonal lean (°)"
+                    unitless
+                    value={p.trussAngle}
+                    step={5}
+                    min={0}
+                    onChange={(v) => set('trussAngle', clamp(v, 0, 60))}
+                  />
+                  <NumField
+                    label="Corner radius"
+                    units={units}
+                    value={p.pocketCornerRadius}
+                    onChange={(v) => set('pocketCornerRadius', v)}
+                  />
+                </>
+              )}
+              {p.lighteningStyle === 'pocket' && (
+                <NumField
+                  label="Corner radius"
+                  units={units}
+                  value={p.pocketCornerRadius}
+                  onChange={(v) => set('pocketCornerRadius', v)}
+                />
+              )}
+              {p.lighteningStyle === 'circles' && (
+                <>
+                  <NumField
+                    label="Hole diameter"
+                    units={units}
+                    value={p.holeDiameter}
+                    onChange={(v) => set('holeDiameter', v)}
+                  />
+                  <NumField
+                    label="Hole spacing"
+                    units={units}
+                    value={p.holeSpacing}
+                    onChange={(v) => set('holeSpacing', v)}
+                  />
+                </>
+              )}
+              {p.lighteningStyle !== 'none' && (
+                <Toggle
+                  label="Also lighten stringer"
+                  checked={p.lightenStringer}
+                  onChange={(v) => set('lightenStringer', v)}
                 />
               )}
             </Group>
@@ -273,13 +344,7 @@ export function ConstructionPanel({
               />
             </Group>
 
-            <Group title="Cutting">
-              <NumField
-                label="Kerf (tool dia.)"
-                units={units}
-                value={p.kerf}
-                onChange={(v) => set('kerf', v)}
-              />
+            <Group title="Skins">
               <NumField
                 label="Skin overhang"
                 units={units}

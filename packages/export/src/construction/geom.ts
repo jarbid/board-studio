@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /** Small 2D polyline utilities for the construction-template builders/writers. */
+import { offsetClosedClipper, type OffsetOpts } from './clipper';
 import type { Label, Loop, Part, Pt } from './types';
 
 export interface Bbox {
@@ -64,6 +65,29 @@ export const rowLayout = (parts: readonly Part[], gap: number): Part[] => {
   return out;
 };
 
+/**
+ * Arrange a sheet's parts top-to-bottom in sheet order, each centred on a common
+ * vertical axis, with `gap` between rows. The whole stack sits in the positive
+ * quadrant. Used by the multi-part writers (DXF/SVG) so ribs read like a nested
+ * quiver — nose at the top, tail at the bottom.
+ */
+export const columnLayout = (parts: readonly Part[], gap: number): Part[] => {
+  if (parts.length === 0) return [];
+  const boxes = parts.map(partBbox);
+  const maxW = Math.max(...boxes.map(bboxWidth));
+  const totalH = boxes.reduce((s, b) => s + bboxHeight(b), 0) + gap * (parts.length + 1);
+  const out: Part[] = [];
+  let topY = totalH - gap; // y of the top edge of the next part (y-up)
+  parts.forEach((part, i) => {
+    const b = boxes[i]!;
+    const dx = gap + (maxW - bboxWidth(b)) / 2 - b.minX; // centre within [gap, gap+maxW]
+    const dy = topY - b.maxY; // seat the part's top edge at topY
+    out.push(translatePart(part, dx, dy));
+    topY -= bboxHeight(b) + gap;
+  });
+  return out;
+};
+
 /** Signed area (shoelace); >0 for counter-clockwise winding. */
 export const signedArea = (pts: readonly Pt[]): number => {
   let a = 0;
@@ -81,31 +105,13 @@ const norm = (x: number, y: number): Pt => {
 };
 
 /**
- * Offset a closed polygon by `dist` (cm) along per-vertex averaged edge normals:
- * `dist > 0` grows the contour outward, `dist < 0` insets it. Naive (no
- * self-intersection cleanup) — fine for the smooth, convex-ish board sections at
- * our scales. Concave vertices (e.g. slot mouths) are offset consistently because
- * the averaged outward normal points the right way.
+ * Offset a closed polygon by `dist` (cm); positive grows, negative insets.
+ * Backed by Clipper2 so concave corners (slot mouths) and tight curvature
+ * (nose/tail planshape, lightening cut-outs) are cleaned up instead of
+ * self-intersecting. Returns the largest result loop.
  */
-export const offsetClosed = (pts: readonly Pt[], dist: number): Pt[] => {
-  const n = pts.length;
-  if (n < 3 || dist === 0) return [...pts];
-  const s = signedArea(pts) >= 0 ? 1 : -1; // +1 CCW
-  const out: Pt[] = [];
-  for (let i = 0; i < n; i++) {
-    const prev = pts[(i - 1 + n) % n]!;
-    const cur = pts[i]!;
-    const next = pts[(i + 1) % n]!;
-    // Outward normal of an edge for CCW winding is (dy, -dx); flip for CW via `s`.
-    const e1 = norm(s * (cur.y - prev.y), s * -(cur.x - prev.x));
-    const e2 = norm(s * (next.y - cur.y), s * -(next.x - cur.x));
-    const nx = e1.x + e2.x;
-    const ny = e1.y + e2.y;
-    const m = norm(nx, ny);
-    out.push({ x: cur.x + m.x * dist, y: cur.y + m.y * dist });
-  }
-  return out;
-};
+export const offsetClosed = (pts: readonly Pt[], dist: number, opts?: OffsetOpts): Pt[] =>
+  offsetClosedClipper(pts, dist, opts);
 
 /**
  * Offset an OPEN polyline by `dist` (cm) along its left-hand normals (rotate the
