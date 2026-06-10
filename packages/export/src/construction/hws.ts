@@ -585,12 +585,30 @@ const buildSkin = (
 };
 
 /**
+ * Compensate every cutting loop for a symmetric kerf: the cutter removes
+ * `kerf / 2` each side of the drawn line, so outer `cut` contours move outward
+ * by half the kerf and `cutInner` holes inward, keeping the finished part true
+ * to size. `mark` loops are untouched; holes the kerf consumes entirely vanish.
+ */
+const applyKerf = (parts: readonly Part[], kerf: number): Part[] =>
+  parts.map((part) => ({
+    ...part,
+    loops: part.loops.flatMap((l): Loop[] => {
+      if (!l.closed || l.kind === 'mark') return [l];
+      const d = l.kind === 'cut' ? kerf / 2 : -kerf / 2;
+      return offsetClosedAll(l.pts, d)
+        .filter((r) => r.length >= 3 && Math.abs(signedArea(r)) > 0.25)
+        .map((r) => loop(l.kind, true, r));
+    }),
+  }));
+
+/**
  * Build the HWS internal-frame templates for `board`. Missing params fall back to
  * {@link DEFAULT_HWS_PARAMS}. Coordinates are centimetres; feed the result to
  * `sheetToDxf` / `sheetToSvg` / `sheetToPdf`.
  *
- * The geometry is **true** — no kerf compensation. Tool-diameter offsets are the
- * operator's job in CAM/CNC programming.
+ * By default the geometry is **true** — tool-diameter offsets are the operator's
+ * job in CAM/CNC programming. Set `kerfDiameter` to bake kerf compensation in.
  */
 export const buildHwsTemplates = (
   board: BezierBoard,
@@ -611,7 +629,7 @@ export const buildHwsTemplates = (
   if (p.includeBottomSkin) parts.push(buildSkin(board, p, stations, 'bottom'));
 
   return {
-    parts,
+    parts: p.kerfDiameter > 0 ? applyKerf(parts, p.kerfDiameter) : parts,
     units: 'cm',
     meta: { title: 'Hollow Wood Frame', generator: 'OpenShaper' },
   };
