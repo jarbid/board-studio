@@ -182,6 +182,31 @@ describe('buildHwsTemplates — lightening', () => {
     expect(rib.loops.some((l) => l.kind === 'cutInner')).toBe(false);
   });
 
+  it('keeps a solid column over the half-lap check (no lightening near the slot)', () => {
+    const materialThickness = 0.6;
+    const slotFit = 0.02;
+    const webMargin = 1.5;
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 1,
+      lighteningStyle: 'truss',
+      webMargin,
+      webThickness: 1,
+      trussSpacing: 5,
+      materialThickness,
+      slotFit,
+    });
+    const rib = sheet.parts.find((p) => p.id.startsWith('rib-'))!;
+    const slotHalf = (materialThickness + slotFit) / 2 + webMargin;
+    const inner = rib.loops.filter((l) => l.kind === 'cutInner');
+    expect(inner.length).toBeGreaterThan(0);
+    for (const l of inner) {
+      for (const q of l.pts) {
+        expect(Math.abs(q.x)).toBeGreaterThanOrEqual(slotHalf - 0.05);
+      }
+    }
+  });
+
   it('leaves the stringer solid unless "lighten stringer" is on', () => {
     const stringerInner = (lightenStringer: boolean): number => {
       const sheet = buildHwsTemplates(board, {

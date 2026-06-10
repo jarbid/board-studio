@@ -111,7 +111,8 @@ const buildStringer = (board: BezierBoard, p: HwsParams, stations: readonly numb
   const outline = dedupe([...top, ...bottom]);
   const loops: Loop[] = [loop('cut', true, outline)];
   // Optional lightening (same style as the ribs), inset from the spine + notches.
-  if (p.lightenStringer) loops.push(...buildLightening(outline, p));
+  // Keep a solid column under each rib-notch half-lap.
+  if (p.lightenStringer) loops.push(...buildLightening(outline, p, inner));
   // Rocker baseline (mark) for reference.
   loops.push(
     loop('mark', false, [
@@ -129,15 +130,48 @@ const buildStringer = (board: BezierBoard, p: HwsParams, stations: readonly numb
  * Build the `cutInner` lightening loops for a part given its outer `contour`.
  * Insets the contour by `webMargin` (a rim clear of every cut edge, incl. slots
  * and notches), then applies the chosen style — pocket / truss / circles — set
- * out symmetrically about the part's own centre. Returns [] for style `none` or
- * when the part is too small to lighten.
+ * out symmetrically about the part's own centre.
+ *
+ * `slotXs` are the x-positions of any half-lap checks (the rib's stringer slot,
+ * the stringer's rib notches): a solid full-height column is kept around each so
+ * the material directly above and below every joint stays uncut. Returns [] for
+ * style `none` or when the part is too small to lighten.
  */
-const buildLightening = (contour: readonly Pt[], p: HwsParams): Loop[] => {
+const buildLightening = (
+  contour: readonly Pt[],
+  p: HwsParams,
+  slotXs: readonly number[] = [],
+): Loop[] => {
   if (p.lighteningStyle === 'none') return [];
-  const innerRegions = offsetClosedAll(contour, -p.webMargin).filter(
+  let innerRegions = offsetClosedAll(contour, -p.webMargin).filter(
     (r) => r.length >= 3 && Math.abs(signedArea(r)) > 0.5,
   );
   if (innerRegions.length === 0) return [];
+
+  // Keep a solid column over every half-lap check: subtract a full-height
+  // rectangle (slot width + a web each side) around each slot from the regions.
+  if (slotXs.length > 0) {
+    const slotHalf = (p.materialThickness + p.slotFit) / 2 + p.webMargin;
+    let yLo = Infinity;
+    let yHi = -Infinity;
+    for (const r of innerRegions) {
+      const b = boundsOf(r);
+      if (b.y0 < yLo) yLo = b.y0;
+      if (b.y1 > yHi) yHi = b.y1;
+    }
+    yLo -= 5;
+    yHi += 5;
+    const columns = slotXs.map((sx) => [
+      { x: sx - slotHalf, y: yLo },
+      { x: sx + slotHalf, y: yLo },
+      { x: sx + slotHalf, y: yHi },
+      { x: sx - slotHalf, y: yHi },
+    ]);
+    innerRegions = innerRegions
+      .flatMap((r) => differenceMulti(r, columns))
+      .filter((r) => r.length >= 3 && Math.abs(signedArea(r)) > 0.5);
+    if (innerRegions.length === 0) return [];
+  }
 
   const out: Loop[] = [];
   if (p.lighteningStyle === 'pocket') {
@@ -237,7 +271,8 @@ const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): P
     { x: -halfW, y: slotTopY }, // up into slot
     { x: halfW, y: slotTopY }, // across slot top
   ]);
-  const loops: Loop[] = [loop('cut', true, contour), ...buildLightening(contour, p)];
+  // The rib's half-lap slot sits at the centreline; keep it solid full-height.
+  const loops: Loop[] = [loop('cut', true, contour), ...buildLightening(contour, p, [0])];
 
   return {
     id: `rib-${index}`,
