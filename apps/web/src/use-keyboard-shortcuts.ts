@@ -13,10 +13,13 @@ export function useKeyboardShortcuts({
   setView,
   setCsIndex,
   metaRef,
+  onCommandPalette,
 }: {
   setView: Dispatch<SetStateAction<View>>;
   setCsIndex: Dispatch<SetStateAction<number>>;
   metaRef: MutableRefObject<BoardMeta>;
+  /** Ctrl/Cmd+K. Pass a stable callback — the listener re-binds when it changes. */
+  onCommandPalette: () => void;
 }): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,6 +39,9 @@ export function useKeyboardShortcuts({
         e.preventDefault();
         const b = boardStore.getState().board;
         if (b) downloadBoard(b, metaRef.current);
+      } else if (mod && k === 'k') {
+        e.preventDefault();
+        onCommandPalette();
       } else if (!mod && !inField) {
         if (e.key === 'Delete' || e.key === 'Backspace') {
           const sel = boardStore.getState().selection;
@@ -67,5 +73,5 @@ export function useKeyboardShortcuts({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setView, setCsIndex, metaRef]);
+  }, [setView, setCsIndex, metaRef, onCommandPalette]);
 }

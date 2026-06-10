@@ -24,7 +24,16 @@ import {
   ToolbarSeparator,
   type MenuItem,
 } from '@openshaper/ui';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   downloadBoard,
   exportBoard,
@@ -35,6 +44,7 @@ import {
 import { DEFAULT_LENGTH_UNIT, LENGTH_UNITS, lengthUnitByKey, parseLen } from './format';
 import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
 import { Brandmark } from './components/marks';
+import { CommandPalette, commandsFromMenus } from './CommandPalette';
 import { ConstructionPanel } from './ConstructionPanel';
 import { CrossSectionControls } from './CrossSectionControls';
 import { CoffeeIcon } from './components/Support';
@@ -140,8 +150,10 @@ function AppShell() {
   metaRef.current = meta;
   const [resize, setResize] = useState<ResizeFields>({ l: '', w: '', t: '' });
   const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const togglePalette = useCallback(() => setPaletteOpen((o) => !o), []);
 
-  useKeyboardShortcuts({ setView, setCsIndex, metaRef });
+  useKeyboardShortcuts({ setView, setCsIndex, metaRef, onCommandPalette: togglePalette });
 
   const sectionCount = board?.crossSections.length ?? 0;
   const lastReal = Math.max(1, sectionCount - 2);
@@ -742,6 +754,20 @@ function AppShell() {
       </div>
 
       {toast && <Toast onClick={() => setToast(null)}>{toast}</Toast>}
+
+      {paletteOpen && (
+        <CommandPalette
+          commands={commandsFromMenus([
+            ['File', fileMenu],
+            ['Edit', editMenu],
+            ['View', viewMenu],
+            ['Board', boardMenu],
+            ['Templates', templatesMenu],
+            ['Help', helpMenu],
+          ])}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
 
       {templateKind === 'hws' && board && (
         <ConstructionPanel

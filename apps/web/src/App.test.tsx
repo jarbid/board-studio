@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { boardStore } from './store';
@@ -20,5 +20,19 @@ describe('<App /> smoke', () => {
 
     // The spec sidebar rendered values for the settled board (volume is always litres).
     expect((await screen.findAllByText(/[\d.]+ liters/)).length).toBeGreaterThan(0);
+  });
+
+  it('Ctrl+K opens the command palette over the menu actions', async () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    const input = await screen.findByPlaceholderText(/command/i);
+
+    // Palette entries come from the real menus.
+    fireEvent.change(input, { target: { value: 'spec sheet' } });
+    expect(screen.getByText(/File: Spec sheet/)).toBeTruthy();
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByPlaceholderText(/command/i)).toBeNull();
   });
 });
