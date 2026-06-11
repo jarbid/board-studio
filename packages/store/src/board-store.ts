@@ -3,6 +3,8 @@ import { adjustCrossSectionsToThicknessAndWidth } from '@openshaper/kernel';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { InterpolationType, Spline } from '@openshaper/kernel';
 import {
+  alignTangentsHorizontal,
+  alignTangentsVertical,
   canDeleteKnot,
   deleteKnot,
   enforceJunctions,
@@ -57,6 +59,10 @@ export interface BoardState {
   deleteControlPoint: (target: SplineTarget, index: number) => void;
   /** Toggle a control point between smooth (continuous) and corner. */
   setContinuous: (target: SplineTarget, index: number, continuous: boolean) => void;
+  /** Rotate both tangent handles to horizontal, preserving their lengths. */
+  alignTangentsHorizontal: (target: SplineTarget, index: number) => void;
+  /** Rotate both tangent handles to vertical, preserving their lengths. */
+  alignTangentsVertical: (target: SplineTarget, index: number) => void;
 
   /** Insert a shape-preserving cross-section at `position`; returns its new index (or -1). */
   addCrossSection: (position: number) => number;
@@ -183,6 +189,16 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       setContinuous: (target, index, continuous) =>
         editSpline(target, continuous ? 'Smooth control point' : 'Corner control point', (s) =>
           withSpline(get().board!, target, setKnotContinuous(s, index, continuous)),
+        ),
+
+      alignTangentsHorizontal: (target, index) =>
+        editSpline(target, 'Align tangents', (s) =>
+          withSpline(get().board!, target, alignTangentsHorizontal(s, index)),
+        ),
+
+      alignTangentsVertical: (target, index) =>
+        editSpline(target, 'Align tangents', (s) =>
+          withSpline(get().board!, target, alignTangentsVertical(s, index)),
         ),
 
       addCrossSection: (position) => {

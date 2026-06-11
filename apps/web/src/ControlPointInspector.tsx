@@ -72,8 +72,9 @@ function CoordInput({
 
 /**
  * Numeric editor for the selected control point — port of the legacy
- * `ControlPointInfo`. Edits the on-curve endpoint (X/Y), toggles smooth/corner
- * continuity, and deletes interior points. Tangent handles stay drag-only.
+ * `ControlPointInfo`. Edits the on-curve endpoint (X/Y), numeric tangent-handle
+ * X/Y fields (prev + next), toggles smooth/corner continuity, deletes interior
+ * points, and offers horizontal/vertical tangent alignment buttons.
  */
 export function ControlPointInspector({
   store,
@@ -102,12 +103,19 @@ export function ControlPointInspector({
   const deletable = canDeleteKnot(spline, index);
   const setEnd = (x: number, y: number) =>
     store.getState().moveControlPoint(target, index, { x, y });
+  const setPrev = (x: number, y: number) =>
+    store.getState().moveTangent(target, index, 'prev', { x, y });
+  const setNext = (x: number, y: number) =>
+    store.getState().moveTangent(target, index, 'next', { x, y });
 
   return (
     <div className="space-y-2">
       <div className="text-xs text-muted-foreground">
         {targetLabel(target)} · point {index + 1}/{spline.knots.length}
       </div>
+
+      {/* Endpoint */}
+      <div className="text-xs font-medium text-muted-foreground">Endpoint</div>
       <CoordInput
         label="X"
         valueCm={knot.end.x}
@@ -120,6 +128,38 @@ export function ControlPointInspector({
         units={units}
         onCommit={(y) => setEnd(knot.end.x, y)}
       />
+
+      {/* Tangent prev (toward previous segment) */}
+      <div className="text-xs font-medium text-muted-foreground">Tangent ← prev</div>
+      <CoordInput
+        label="X"
+        valueCm={knot.tangentToPrev.x}
+        units={units}
+        onCommit={(x) => setPrev(x, knot.tangentToPrev.y)}
+      />
+      <CoordInput
+        label="Y"
+        valueCm={knot.tangentToPrev.y}
+        units={units}
+        onCommit={(y) => setPrev(knot.tangentToPrev.x, y)}
+      />
+
+      {/* Tangent next (toward next segment) */}
+      <div className="text-xs font-medium text-muted-foreground">Tangent → next</div>
+      <CoordInput
+        label="X"
+        valueCm={knot.tangentToNext.x}
+        units={units}
+        onCommit={(x) => setNext(x, knot.tangentToNext.y)}
+      />
+      <CoordInput
+        label="Y"
+        valueCm={knot.tangentToNext.y}
+        units={units}
+        onCommit={(y) => setNext(knot.tangentToNext.x, y)}
+      />
+
+      {/* Controls row */}
       <div className="flex items-center gap-2 pt-1">
         <Button
           size="sm"
@@ -138,6 +178,28 @@ export function ControlPointInspector({
           title={deletable ? 'Delete this point (Del)' : 'Endpoints cannot be deleted'}
         >
           Delete
+        </Button>
+      </div>
+
+      {/* Tangent alignment buttons — port of the legacy ControlPointInfo mask buttons */}
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex-1 font-mono"
+          onClick={() => store.getState().alignTangentsHorizontal(target, index)}
+          title="Align both tangent handles to horizontal axis, preserving their lengths"
+        >
+          —
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex-1 font-mono"
+          onClick={() => store.getState().alignTangentsVertical(target, index)}
+          title="Align both tangent handles to vertical axis, preserving their lengths"
+        >
+          |
         </Button>
       </div>
     </div>
