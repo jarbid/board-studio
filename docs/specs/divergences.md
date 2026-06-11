@@ -15,18 +15,16 @@ Adding an entry requires:
    commit, with the new tolerance derivation documented.
 3. **A row below.**
 
-| Date | Subsystem | What differs | Magnitude vs legacy | Why | Oracle | Commit |
-| ---- | --------- | ------------ | ------------------- | --- | ------ | ------ |
-| —    | —         | none yet     | —                   | —   | —      | —      |
+| Date       | Subsystem                                | What differs                                                                                                                                                                                | Magnitude vs legacy                                                                                                                                                                                                                                                                                                 | Why                                                                                                                                                                                           | Oracle                                                                                                                                                                                                                                     | Commit                            |
+| ---------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| 2026-06-11 | `getVolume` / `getCenterOfMass` (kernel) | Longitudinal integral defaults to `adaptiveSimpson` (relTol `1e-5`) instead of the legacy fixed `VOLUME_Y_SPLITS=30` / `MASS_Y_SPLITS=10` Simpson. Inner cross-section trapezoid unchanged. | Volume: ≤ 0.016% vs legacy fixed-split (control-point boards), ≤ 1.3e-4 rel (sLinear longboard). CoM: ≤ 0.072 cm. All well inside the 1% / 0.5 cm golden bands. (The `1e-5` relTol was chosen because `1e-4` still leaves the funboard ~0.18% short of converged; `1e-5` lands within ~1e-4 of the 1e-9 reference.) | Legacy hard-coded 30/10 panels (CLAUDE.md principle 3). Adaptive refines only where the area-vs-x curve needs it, so it is at least as accurate everywhere for ~13–260 integrand calls/board. | Convergence: adaptive default agrees with a 4×-finer fixed Simpson to < 0.5% (`board.integration.test.ts`) and to < 1e-3 over the sLinear area curve (`board.slinear.test.ts`). Legacy splits still reproducible via `IntegrationOptions`. | feat/adaptive-integration-default |
+| 2026-06-11 | `getArea` (kernel)                       | Planshape-area integral defaults to `adaptiveSimpson` (relTol `1e-5`) instead of the legacy fixed `AREA_SPLITS=10` Simpson.                                                                 | ≤ 0.75% larger than legacy (longboard; shortboard 0.42%, funboard 0.52%) — AREA_SPLITS was the least-converged legacy resolution.                                                                                                                                                                                   | Same as above; `AREA_SPLITS=10` left the longboard's width integral ~0.63–0.75% short of converged.                                                                                           | Adaptive default equals a 1e-9 adaptive integral of the width to < 0.01% (`board.integration.test.ts`); still inside the 1% golden area band. `getArea(b, 10)` reproduces the legacy value bit-for-bit.                                    | feat/adaptive-integration-default |
+
+The sLinear golden **volume** band was relaxed 1e-4 → 1e-2 in the same commit
+(`board.slinear.test.ts`), with a convergence-oracle test; the per-station
+**area** band stays 1e-4 because the inner cross-section trapezoid
+(`SLINEAR_AREA_SPLITS`) is deliberately left legacy-pinned.
 
 ## Known candidates (not yet diverged)
 
-- **`AREA_SPLITS = 10` (planshape area)** — the least-converged legacy
-  resolution: refinement moves the longboard's area by ~0.63% (volume/CoM stay
-  < 0.5%). See `packages/kernel/src/board.integration.test.ts`. Becoming the
-  default would need the golden area fixtures re-derived from a converged
-  integral (`adaptiveSimpson` exists in `math.ts`).
-- **Adaptive integration as the `getVolume` default** — blocked by the sLinear
-  golden volume band (1e-4 relative, a port-verification artifact). Superseding
-  it means re-banding `board.slinear.test.ts` volume to ~1e-2 with a convergence
-  oracle, per the process above.
+- _(none — the adaptive-integration candidates above have been actioned.)_

@@ -21,7 +21,7 @@ import {
   scaleCrossSection,
   type CrossSection,
 } from './cross-section';
-import { simpsonIntegral, trapezoidIntegralXY } from './math';
+import { adaptiveSimpson, simpsonIntegral, trapezoidIntegralXY } from './math';
 import { vec2, type Vec2 } from './vec2';
 
 /**
@@ -57,26 +57,51 @@ export interface BezierBoard {
   readonly interpolationType: InterpolationType;
 }
 
-// Legacy fixed integration resolutions (BezierBoard.*_SPLITS) — the *defaults*
-// of getVolume / getArea / getCenterOfMass, kept so the port reproduces the
-// golden values (board.golden.test.ts pins area/volume to 1%, and the sLinear
-// port pins volume to 1e-4 relative). Callers that need more accuracy override
-// the splits per call, or integrate with `adaptiveSimpson` (math.ts); making
-// adaptive the default would require relaxing the sLinear golden volume band
-// from 1e-4 to ~1e-2. Quadrupling these moves volume/CoM on the golden boards
-// by < 0.5%, but planshape area by up to ~0.63% (longboard) — AREA_SPLITS is
-// the least-converged legacy resolution (see board.integration.test.ts).
+// Legacy fixed integration resolutions (BezierBoard.*_SPLITS). These are NO LONGER
+// the defaults of the *longitudinal* integral — getVolume / getArea / getCenterOfMass
+// now drive the length axis with `adaptiveSimpson` (see ADAPTIVE_REL_TOL below).
+// They survive as:
+//   - VOLUME_X_SPLITS / MASS_X_SPLITS: the default trapezoid resolution of the INNER
+//     cross-section area sample (getCrossSectionAreaAt), which stays legacy-pinned.
+//   - the values reproduced when a caller passes explicit IntegrationOptions / splits,
+//     so the legacy fixed-split numbers remain available on demand (and the sLinear
+//     per-station area golden, which uses SLINEAR_AREA_SPLITS, is untouched).
+// Quadrupling the longitudinal splits moved volume/CoM on the golden boards by < 0.5%,
+// but planshape area by up to ~0.63% (longboard) — AREA_SPLITS was the least-converged
+// legacy resolution. The adaptive default lands on the converged value; the resulting
+// intentional divergences from legacy are recorded in docs/specs/divergences.md.
 const VOLUME_X_SPLITS = 10;
-const VOLUME_Y_SPLITS = 30;
 const AREA_SPLITS = 10;
 const MASS_X_SPLITS = 10;
-const MASS_Y_SPLITS = 10;
+// Legacy longitudinal split counts (VOLUME_Y_SPLITS=30, MASS_Y_SPLITS=10) are no
+// longer defaults — the length axis is adaptive. Callers reproduce them by passing
+// `lengthSplits` explicitly (see board.integration.test.ts).
 
-/** Overridable integration resolutions for the volume / center-of-mass integrals. */
+// Relative tolerance for the adaptive longitudinal integral (volume / area / CoM).
+// Chosen for the volume worker hot path: getVolume re-runs on every settled edit, so
+// the integrand (a cross-section area sample) must not be over-evaluated. Measured on
+// the golden boards, 1e-5 is fully converged — it reproduces the volume/area/CoM that a
+// 4x-finer fixed Simpson gives, while costing only ~13–260 integrand calls per board
+// (vs the legacy fixed ~90). 1e-6 roughly doubles the call count for no measurable
+// accuracy gain on these boards; 1e-4 leaves volume ~0.17% short of converged on the
+// funboard. See board.integration.test.ts for the convergence oracle.
+const ADAPTIVE_REL_TOL = 1e-5;
+
+/**
+ * Integration resolution override for the volume / center-of-mass integrals.
+ *
+ * When omitted, the longitudinal integral is adaptive (ADAPTIVE_REL_TOL). Supplying
+ * `lengthSplits` switches that axis back to the legacy fixed-split Simpson with that
+ * many panels (reproducing legacy values bit-for-bit when the legacy counts are
+ * passed). `sectionSplits` always overrides the inner cross-section trapezoid count.
+ */
 export interface IntegrationOptions {
   /** Trapezoid splits per cross-section area sample (legacy VOLUME_X/MASS_X_SPLITS). */
   sectionSplits?: number;
-  /** Longitudinal Simpson panels (legacy VOLUME_Y/MASS_Y_SPLITS). */
+  /**
+   * Longitudinal Simpson panels (legacy VOLUME_Y/MASS_Y_SPLITS). Omit for the
+   * adaptive default; pass a number to force the legacy fixed-split integrator.
+   */
   lengthSplits?: number;
 }
 
@@ -370,33 +395,69 @@ export const getCrossSectionAreaAt = (b: BezierBoard, x: number, splits: number)
     ? getSLinearCrossSectionAreaAt(b, x)
     : getControlPointCrossSectionAreaAt(b, x, splits);
 
-/** Board volume in cm³ (legacy getVolume). */
+/**
+ * Board volume in cm³ (legacy getVolume).
+ *
+ * The longitudinal integral defaults to {@link adaptiveSimpson}; pass
+ * `opts.lengthSplits` to force the legacy fixed-split Simpson instead. The inner
+ * cross-section area sample always uses `sectionSplits` (legacy VOLUME_X_SPLITS).
+ */
 export const getVolume = (b: BezierBoard, opts: IntegrationOptions = {}): number => {
   if (b.crossSections.length < 3) return 0;
-  const { sectionSplits = VOLUME_X_SPLITS, lengthSplits = VOLUME_Y_SPLITS } = opts;
+  const { sectionSplits = VOLUME_X_SPLITS, lengthSplits } = opts;
   const a = 0.01;
   const bEnd = getLength(b) - 0.01;
-  return simpsonIntegral((x) => getCrossSectionAreaAt(b, x, sectionSplits), a, bEnd, lengthSplits);
+  const areaAt = (x: number): number => getCrossSectionAreaAt(b, x, sectionSplits);
+  return lengthSplits === undefined
+    ? adaptiveSimpson(areaAt, a, bEnd, ADAPTIVE_REL_TOL)
+    : simpsonIntegral(areaAt, a, bEnd, lengthSplits);
 };
 
-/** Planshape area in cm² (legacy getArea): integral of width over length. */
-export const getArea = (b: BezierBoard, splits: number = AREA_SPLITS): number =>
-  simpsonIntegral((x) => getWidthAtPos(b, x), T_ZERO, getLength(b) - T_ZERO, splits);
+/**
+ * Planshape area in cm² (legacy getArea): integral of width over length.
+ *
+ * Defaults to {@link adaptiveSimpson}; pass `splits` to force the legacy
+ * fixed-split Simpson (e.g. `getArea(b, 10)` reproduces the legacy value).
+ */
+export const getArea = (b: BezierBoard, splits?: number): number => {
+  const a = T_ZERO;
+  const bEnd = getLength(b) - T_ZERO;
+  const widthAt = (x: number): number => getWidthAtPos(b, x);
+  return splits === undefined
+    ? adaptiveSimpson(widthAt, a, bEnd, ADAPTIVE_REL_TOL)
+    : simpsonIntegral(widthAt, a, bEnd, splits);
+};
 
-/** Longitudinal center of mass (legacy getCenterOfMass), assuming uniform density. */
+/**
+ * Longitudinal center of mass (legacy getCenterOfMass), assuming uniform density.
+ *
+ * CoM = ∫ x·A(x) dx / ∫ A(x) dx. Both the moment and the weight integrals default
+ * to {@link adaptiveSimpson} (replacing the legacy manual fixed-step Simpson loop);
+ * pass `opts.lengthSplits` to fall back to the fixed-split integrator. The adaptive
+ * NaN→0 guarding matches the legacy loop's per-sample guarding.
+ */
 export const getCenterOfMass = (b: BezierBoard, opts: IntegrationOptions = {}): number => {
   if (b.crossSections.length < 3) return 0;
-  const { sectionSplits = MASS_X_SPLITS, lengthSplits = MASS_Y_SPLITS } = opts;
+  const { sectionSplits = MASS_X_SPLITS, lengthSplits } = opts;
   const a = 0.01;
   const bEnd = getLength(b) - 0.01;
+  const areaAt = (x: number): number => getCrossSectionAreaAt(b, x, sectionSplits);
+
+  if (lengthSplits === undefined) {
+    const moment = adaptiveSimpson((x) => x * areaAt(x), a, bEnd, ADAPTIVE_REL_TOL);
+    const weight = adaptiveSimpson(areaAt, a, bEnd, ADAPTIVE_REL_TOL);
+    return moment / weight;
+  }
+
+  // Legacy fixed-step Simpson loop (kept bit-for-bit for the explicit override).
   const step = (bEnd - a) / lengthSplits;
   let momentSum = 0;
   let weightSum = 0;
   let an = a;
-  let x0 = getCrossSectionAreaAt(b, an, sectionSplits);
+  let x0 = areaAt(an);
   for (let i = 0; i < lengthSplits; i++) {
-    let x1 = getCrossSectionAreaAt(b, an + step / 2, sectionSplits);
-    let x2 = getCrossSectionAreaAt(b, an + step, sectionSplits);
+    let x1 = areaAt(an + step / 2);
+    let x2 = areaAt(an + step);
     if (Number.isNaN(x0)) x0 = 0;
     if (Number.isNaN(x1)) x1 = 0;
     if (Number.isNaN(x2)) x2 = 0;

@@ -1,15 +1,31 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Convergence of the (parameterizable) integration resolutions: the legacy
- * default splits must already be near the converged value, so the golden
- * pinning and any caller-supplied higher resolution agree to well under the
- * 1% golden band. Guards the "defaults are converged" claim in board.ts.
+ * Integration-resolution contract for getVolume / getArea / getCenterOfMass.
+ *
+ * The longitudinal integral now defaults to {@link adaptiveSimpson} (the
+ * cross-section trapezoid stays fixed-split / legacy-pinned). This file pins
+ * two things:
+ *  1. The legacy fixed-split values are still reproducible *on demand* via the
+ *     explicit overrides (IntegrationOptions / getArea's `splits` arg), and they
+ *     match the standalone {@link simpsonIntegral} reference exactly.
+ *  2. The new adaptive default is converged — it sits on top of a much finer
+ *     fixed-split integral (the convergence oracle), so it is at least as
+ *     accurate as the legacy default, not a regression.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { getArea, getCenterOfMass, getVolume } from './board';
+import {
+  getArea,
+  getCenterOfMass,
+  getCrossSectionAreaAt,
+  getLength,
+  getVolume,
+  getWidthAtPos,
+} from './board';
+import { T_ZERO } from './constants';
+import { adaptiveSimpson, simpsonIntegral } from './math';
 import { parseBrdGeometry } from './test-support/brd-geometry';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -17,34 +33,67 @@ const goldenDir = resolve(here, '../../../docs/specs/golden');
 const loadBoard = (name: string) =>
   parseBrdGeometry(readFileSync(resolve(goldenDir, `${name}.brd`), 'utf8'));
 
+// Legacy fixed-split resolutions (BezierBoard.*_SPLITS), reproduced on demand.
+const LEGACY_VOLUME = { sectionSplits: 10, lengthSplits: 30 } as const;
+const LEGACY_AREA_SPLITS = 10;
+const LEGACY_MASS = { sectionSplits: 10, lengthSplits: 10 } as const;
+
 for (const name of ['shortboard', 'funboard', 'longboard']) {
-  describe(`integration convergence: ${name}`, () => {
+  describe(`integration resolution: ${name}`, () => {
     const b = loadBoard(name);
 
-    it('volume at 4× the legacy resolution moves < 0.5%', () => {
-      const coarse = getVolume(b);
+    it('adaptive volume default is converged (near a 4x-finer fixed integral)', () => {
+      const adaptive = getVolume(b);
       const fine = getVolume(b, { sectionSplits: 40, lengthSplits: 120 });
-      expect(Math.abs(fine - coarse) / coarse).toBeLessThan(0.005);
+      expect(Math.abs(adaptive - fine) / fine).toBeLessThan(0.005);
     });
 
-    it('area at 4× the legacy resolution stays inside the 1% golden band', () => {
-      // The legacy AREA_SPLITS=10 is the least-converged resolution: the
-      // longboard's area moves ~0.63% under refinement (volume/CoM < 0.1%).
-      const coarse = getArea(b);
-      const fine = getArea(b, 40);
-      expect(Math.abs(fine - coarse) / coarse).toBeLessThan(0.01);
+    it('adaptive area default equals the converged area to <0.01%', () => {
+      // AREA_SPLITS=10 is the least-converged legacy resolution; adaptive lands
+      // on the converged value. Oracle: a 1e-9 adaptive integral of the width.
+      const adaptive = getArea(b);
+      const converged = adaptiveSimpson((x) => getWidthAtPos(b, x), 0, getLength(b), 1e-9);
+      expect(Math.abs(adaptive - converged) / converged).toBeLessThan(0.0001);
     });
 
-    it('center of mass at 4× the legacy resolution moves < 0.25 cm', () => {
-      const coarse = getCenterOfMass(b);
-      const fine = getCenterOfMass(b, { sectionSplits: 40, lengthSplits: 40 });
-      expect(Math.abs(fine - coarse)).toBeLessThan(0.25);
+    it('adaptive CoM default is converged (near a 4x-finer fixed integral)', () => {
+      const adaptive = getCenterOfMass(b);
+      const fine = getCenterOfMass(b, { sectionSplits: 40, lengthSplits: 120 });
+      expect(Math.abs(adaptive - fine)).toBeLessThan(0.25);
     });
 
-    it('explicit legacy splits reproduce the defaults exactly', () => {
-      expect(getVolume(b, { sectionSplits: 10, lengthSplits: 30 })).toBe(getVolume(b));
-      expect(getArea(b, 10)).toBe(getArea(b));
-      expect(getCenterOfMass(b, { sectionSplits: 10, lengthSplits: 10 })).toBe(getCenterOfMass(b));
+    it('explicit legacy splits reproduce the standalone fixed-split reference', () => {
+      const len = getLength(b);
+      // Same integrand, bounds and split count getVolume's legacy default used.
+      const refVol = simpsonIntegral(
+        (x) => getCrossSectionAreaAt(b, x, LEGACY_VOLUME.sectionSplits),
+        0.01,
+        len - 0.01,
+        LEGACY_VOLUME.lengthSplits,
+      );
+      expect(getVolume(b, LEGACY_VOLUME)).toBe(refVol);
+
+      // getArea integrates over [T_ZERO, len - T_ZERO]; match it bit-for-bit.
+      const refArea = simpsonIntegral(
+        (x) => getWidthAtPos(b, x),
+        T_ZERO,
+        len - T_ZERO,
+        LEGACY_AREA_SPLITS,
+      );
+      expect(getArea(b, LEGACY_AREA_SPLITS)).toBe(refArea);
+    });
+
+    it('legacy explicit splits differ from the adaptive default (the divergence is real)', () => {
+      // Sanity: the new default is genuinely a different number from the legacy
+      // fixed-split value (otherwise the divergence ledger entry would be moot).
+      expect(getArea(b, LEGACY_AREA_SPLITS)).not.toBe(getArea(b));
+    });
+
+    it('explicit legacy CoM splits stay available and finite', () => {
+      const com = getCenterOfMass(b, LEGACY_MASS);
+      expect(Number.isFinite(com)).toBe(true);
+      expect(com).toBeGreaterThan(0);
+      expect(com).toBeLessThan(getLength(b));
     });
   });
 }
