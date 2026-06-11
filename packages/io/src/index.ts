@@ -8,6 +8,8 @@
  */
 export { parseBrd } from './brd-reader';
 export type { ParsedBrd, BrdMetadataValue } from './brd-reader';
+export { parseSrf, SrfReadError } from './srf-reader';
+export type { ParsedSrf } from './srf-reader';
 export {
   writeBoardJson,
   readBoardJson,
