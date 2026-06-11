@@ -27,4 +27,29 @@ The sLinear golden **volume** band was relaxed 1e-4 → 1e-2 in the same commit
 
 ## Known candidates (not yet diverged)
 
-- _(none — the adaptive-integration candidates above have been actioned.)_
+- **Junction constraints — unimplemented legacy locks/masks** (see
+  `docs/specs/junction-constraints.md`, JC-1…JC-8). The web `enforceJunctions`
+  re-snaps positions only; it does not model the legacy per-knot masks, tangent
+  locks, or slaves. The gaps, pinned by the "junction-constraint spec (legacy
+  parity pinning)" tests in `packages/store/src/edits.test.ts`:
+  - **Outline endpoint centreline pin is asymmetric** (behavioural). Legacy JC-1
+    fully locks **both** outline tips with `setMask(0,0)`; the port only snaps
+    `outline.knots[0]` (the tail, `x = 0`) to `y = 0` and leaves `knots[last]`
+    (the nose, `x = length`) free. Under the correct tail-at-x=0 geometry the
+    pinned end is the **tail**, not the nose — and the in-code comment that calls
+    `knots[0]` the "nose" is the same inverted naming as the stale `board.ts`
+    comment (lines ~47/55). Whether the intended pinned end is the nose is a
+    deferred design question; if so this is an inverted-by-naming bug.
+  - **Endpoint masks not modeled (JC-1/JC-2/JC-3)** — tips are re-snapped
+    positionally rather than being un-draggable; no deck/bottom endpoint x-lock.
+  - **Tangent-flow locks not modeled (JC-6/JC-7/JC-8)** — no per-handle clamp, so
+    a drag can fold a tangent past its endpoint x (or below the tip y).
+  - **`adjustCrossectionThickness` y-mask (JC-4 y) not modeled** — section
+    endpoint y is never constrained; the thickness-adjust mode is absent.
+
+  These are unimplemented behaviors, not superseded golden values, so they have
+  no table row (no better oracle / regenerated fixture exists yet). Promote to a
+  table row only once a junction-lock layer is built and verified.
+
+(The former adaptive-integration candidates were actioned — see the table rows
+above.)
