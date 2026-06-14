@@ -8,7 +8,7 @@ import {
   sheetToSvg,
   type TemplateSheet,
 } from '@openshaper/export';
-import { parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
+import { parseBrd, parseS3d, readBoardJson, writeBoardJson } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
 
 function download(data: BlobPart, filename: string, type: string): void {
@@ -51,6 +51,13 @@ type BoardFileReader = (file: File) => Promise<{ board: BezierBoard; meta: Board
 // arrayBuffer), so binary formats fit the same table.
 const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
   '.brd': async (file) => ({ board: parseBrd(await file.text()).board, meta: {} }),
+  '.s3d': async (file) => {
+    const { board: b, metadata } = parseS3d(await file.text());
+    return {
+      board: b,
+      meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
+    };
+  },
 };
 
 const readBoardJsonFile: BoardFileReader = async (file) => {

@@ -603,14 +603,14 @@ function AppShell() {
         <input
           ref={fileInput}
           type="file"
-          accept=".board.json,.json,.brd"
+          accept=".board.json,.json,.brd,.s3d"
           className="hidden"
           onChange={onOpenFile}
         />
         <input
           ref={ghostInput}
           type="file"
-          accept=".board.json,.json,.brd"
+          accept=".board.json,.json,.brd,.s3d"
           className="hidden"
           onChange={onOpenGhost}
         />
