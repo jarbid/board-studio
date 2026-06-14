@@ -358,6 +358,77 @@ export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): Bezier
   return board(outline, bottom, deck, crossSections, b.interpolationType);
 };
 
+/**
+ * Align both tangent handles of a knot so they point along the horizontal (X) axis,
+ * preserving each handle's distance from the endpoint.
+ *
+ * Port of `BrdEditCommand.rotateControlPointToHorizontal` (which==0 path):
+ * - The prev handle x-offset direction (sign) is kept; y is set to `end.y`.
+ * - The next handle x-offset direction is kept; y is set to `end.y`.
+ * - If the knot is continuous, both handles are mirrored through the endpoint so
+ *   they remain collinear on the horizontal axis.
+ */
+export const alignTangentsHorizontal = (s: Spline, index: number): Spline => {
+  const k = s.knots[index]!;
+  const { end } = k;
+  const prevLen = Math.hypot(k.tangentToPrev.x - end.x, k.tangentToPrev.y - end.y);
+  const nextLen = Math.hypot(k.tangentToNext.x - end.x, k.tangentToNext.y - end.y);
+  // Preserve the horizontal direction (sign) of each handle relative to the endpoint.
+  // Legacy uses strict > 0 for prevSign, >= 0 for nextSign (matches BrdEditCommand).
+  const prevSign = k.tangentToPrev.x - end.x > 0 ? 1 : -1;
+  const nextSign = k.tangentToNext.x - end.x >= 0 ? 1 : -1;
+
+  let prev = vec2(end.x + prevLen * prevSign, end.y);
+  let next = vec2(end.x + nextLen * nextSign, end.y);
+
+  if (k.continuous) {
+    // Both handles must be collinear on the horizontal axis through the endpoint.
+    // The prev handle drives the mirror: next is opposite direction, preserving next length.
+    next = vec2(end.x - nextLen * prevSign, end.y);
+  }
+
+  return replaceKnot(s, index, knot(end, prev, next, k.continuous, k.other));
+};
+
+/**
+ * Align both tangent handles of a knot so they point along the vertical (Y) axis,
+ * preserving each handle's distance from the endpoint.
+ *
+ * Port of `BrdEditCommand.rotateControlPointToVertical` (which==0 path):
+ * - The prev handle y-offset direction (sign) is kept; x is set to `end.x`.
+ * - The next handle y-offset direction is kept; x is set to `end.x`.
+ * - If the knot is continuous, both handles are mirrored through the endpoint so
+ *   they remain collinear on the vertical axis.
+ */
+export const alignTangentsVertical = (s: Spline, index: number): Spline => {
+  const k = s.knots[index]!;
+  const { end } = k;
+  const prevLen = Math.hypot(k.tangentToPrev.x - end.x, k.tangentToPrev.y - end.y);
+  const nextLen = Math.hypot(k.tangentToNext.x - end.x, k.tangentToNext.y - end.y);
+  // Preserve the vertical direction (sign) of each handle relative to the endpoint.
+  // Legacy uses strict > 0 for prevSign, >= 0 for nextSign (matches BrdEditCommand).
+  const prevSign = k.tangentToPrev.y - end.y > 0 ? 1 : -1;
+  const nextSign = k.tangentToNext.y - end.y >= 0 ? 1 : -1;
+
+  // Legacy applies two independent if-blocks for which==0 (both run).
+  // Block 1 aligns prev (and mirrors next via prevSign if continuous).
+  // Block 2 aligns next (and mirrors prev via nextSign if continuous), overwriting block 1.
+  // With continuous=true the second block always wins, so nextSign drives the mirror.
+  let prev: Vec2;
+  let next: Vec2;
+
+  if (k.continuous) {
+    // Second block wins: next keeps its sign, prev is mirrored from nextSign.
+    next = vec2(end.x, end.y + nextLen * nextSign);
+    prev = vec2(end.x, end.y - prevLen * nextSign);
+  } else {
+    prev = vec2(end.x, end.y + prevLen * prevSign);
+    next = vec2(end.x, end.y + nextLen * nextSign);
+  }
+
+  return replaceKnot(s, index, knot(end, prev, next, k.continuous, k.other));
+};
+
 /** Only interior knots can be deleted, and never below a single segment (2 knots). */
 export const canDeleteKnot = (s: Spline, index: number): boolean =>
   s.knots.length > 2 && index > 0 && index < s.knots.length - 1;

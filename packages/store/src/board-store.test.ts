@@ -336,6 +336,99 @@ describe('board store: add / delete control points', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// board store: alignTangents actions
+// ---------------------------------------------------------------------------
+
+describe('board store: alignTangents horizontal/vertical actions', () => {
+  // Interior knot at index 1: end=(50,10), prev=(45,5), next=(55,15) — diagonal
+  const makeBoardWithDiagKnot = (): BezierBoard => {
+    const outline = splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0), true),
+      knot(vec2(50, 10), vec2(45, 5), vec2(55, 15), false),
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
+    ]);
+    const bottom = splineFromKnots([
+      knot(vec2(0, 2), vec2(-5, 2), vec2(5, 2)),
+      knot(vec2(100, 2), vec2(95, 2), vec2(105, 2)),
+    ]);
+    const deck = splineFromKnots([
+      knot(vec2(0, 8), vec2(-5, 8), vec2(5, 8)),
+      knot(vec2(100, 8), vec2(95, 8), vec2(105, 8)),
+    ]);
+    const prof = splineFromKnots([
+      knot(vec2(0, 2), vec2(0, 2), vec2(10, 2)),
+      knot(vec2(10, 5), vec2(10, 3), vec2(10, 5)),
+    ]);
+    return board(outline, bottom, deck, [
+      crossSection(0, prof),
+      crossSection(50, prof),
+      crossSection(100, prof),
+    ]);
+  };
+
+  it('alignTangentsHorizontal aligns the outline interior knot tangents to horizontal', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoardWithDiagKnot());
+    store.getState().alignTangentsHorizontal({ kind: 'outline' }, 1);
+    const ko = store.getState().board!.outline.knots[1]!;
+    expect(ko.tangentToPrev.y).toBeCloseTo(ko.end.y, 6);
+    expect(ko.tangentToNext.y).toBeCloseTo(ko.end.y, 6);
+  });
+
+  it('alignTangentsHorizontal records a labelled undo step', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoardWithDiagKnot());
+    const before = store.getState().board;
+    store.getState().alignTangentsHorizontal({ kind: 'outline' }, 1);
+    expect(store.getState().canUndo()).toBe(true);
+    expect(store.getState().past[0]!.label).toBe('Align tangents');
+    store.getState().undo();
+    expect(store.getState().board).toBe(before);
+  });
+
+  it('alignTangentsVertical aligns the outline interior knot tangents to vertical', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoardWithDiagKnot());
+    store.getState().alignTangentsVertical({ kind: 'outline' }, 1);
+    const ko = store.getState().board!.outline.knots[1]!;
+    expect(ko.tangentToPrev.x).toBeCloseTo(ko.end.x, 6);
+    expect(ko.tangentToNext.x).toBeCloseTo(ko.end.x, 6);
+  });
+
+  it('alignTangentsVertical records a labelled undo step', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoardWithDiagKnot());
+    const before = store.getState().board;
+    store.getState().alignTangentsVertical({ kind: 'outline' }, 1);
+    expect(store.getState().canUndo()).toBe(true);
+    expect(store.getState().past[0]!.label).toBe('Align tangents');
+    store.getState().undo();
+    expect(store.getState().board).toBe(before);
+  });
+
+  it('junction knot: alignTangentsHorizontal does not violate the junction constraint', () => {
+    // Use a deck junction knot (index 0 = nose tip, shared with bottom).
+    // After action + enforceJunctions, the deck/bottom nose tips must still match.
+    const store = createBoardStore();
+    store.getState().load(makeBoardWithDiagKnot());
+    // Aligning the outline's nose (index 0) — a junction endpoint; constraint must win.
+    store.getState().alignTangentsHorizontal({ kind: 'outline' }, 0);
+    const b = store.getState().board!;
+    // The outline nose y must still be 0 (junction constraint: outline nose on centerline).
+    expect(b.outline.knots[0]!.end.y).toBeCloseTo(0, 6);
+  });
+
+  it('junction knot: alignTangentsVertical does not violate the junction constraint', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoardWithDiagKnot());
+    store.getState().alignTangentsVertical({ kind: 'deck' }, 0);
+    const b = store.getState().board!;
+    // Deck/bottom tips must still be joined after enforceJunctions.
+    expect(b.bottom.knots[0]!.end).toEqual(b.deck.knots[0]!.end);
+  });
+});
+
 describe('edits: continuous tangent mirroring', () => {
   it('keeps the opposite handle collinear through the endpoint', () => {
     const s = splineFromKnots([

@@ -6,6 +6,8 @@ export {
   type Selection,
 } from './board-store';
 export {
+  alignTangentsHorizontal,
+  alignTangentsVertical,
   canDeleteKnot,
   deleteKnot,
   enforceJunctions,

@@ -28,6 +28,8 @@ import {
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import {
+  alignTangentsHorizontal,
+  alignTangentsVertical,
   enforceJunctions,
   getTargetSpline,
   insertCrossSection,
@@ -677,5 +679,159 @@ describe('junction-constraint spec (legacy parity pinning)', () => {
     expect(twice.crossSections.map((c) => c.spline.knots)).toEqual(
       once.crossSections.map((c) => c.spline.knots),
     );
+  });
+
+// ---------------------------------------------------------------------------
+// alignTangentsHorizontal — port of BrdEditCommand.rotateControlPointToHorizontal
+// ---------------------------------------------------------------------------
+
+describe('alignTangentsHorizontal', () => {
+  // Interior knot with both handles off-axis (not horizontal).
+  // end=(50,10), prev=(45,5), next=(55,15) — both diagonal.
+  const makeDiagSpline = () =>
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0), true),
+      knot(vec2(50, 10), vec2(45, 5), vec2(55, 15), false),
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
+    ]);
+
+  it('rotates both tangents to horizontal, preserving each handle length', () => {
+    const s = makeDiagSpline();
+    const k = s.knots[1]!;
+    const prevLen = Math.hypot(k.tangentToPrev.x - k.end.x, k.tangentToPrev.y - k.end.y);
+    const nextLen = Math.hypot(k.tangentToNext.x - k.end.x, k.tangentToNext.y - k.end.y);
+    const out = alignTangentsHorizontal(s, 1);
+    const ko = out.knots[1]!;
+    // y-coordinates of both handles must equal the endpoint's y
+    expect(ko.tangentToPrev.y).toBeCloseTo(k.end.y, 9);
+    expect(ko.tangentToNext.y).toBeCloseTo(k.end.y, 9);
+    // lengths are preserved
+    expect(Math.hypot(ko.tangentToPrev.x - ko.end.x, ko.tangentToPrev.y - ko.end.y)).toBeCloseTo(
+      prevLen,
+      9,
+    );
+    expect(Math.hypot(ko.tangentToNext.x - ko.end.x, ko.tangentToNext.y - ko.end.y)).toBeCloseTo(
+      nextLen,
+      9,
+    );
+  });
+
+  it('prev handle stays to the left (negative x direction relative to end)', () => {
+    const s = makeDiagSpline();
+    const out = alignTangentsHorizontal(s, 1);
+    const ko = out.knots[1]!;
+    // original tangentToPrev.x (45) < end.x (50): prev should stay to the left
+    expect(ko.tangentToPrev.x).toBeLessThan(ko.end.x);
+  });
+
+  it('next handle stays to the right (positive x direction relative to end)', () => {
+    const s = makeDiagSpline();
+    const out = alignTangentsHorizontal(s, 1);
+    const ko = out.knots[1]!;
+    // original tangentToNext.x (55) > end.x (50): next should stay to the right
+    expect(ko.tangentToNext.x).toBeGreaterThan(ko.end.x);
+  });
+
+  it('when continuous, both handles become collinear (horizontal) through the endpoint', () => {
+    const s = splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0), true),
+      knot(vec2(50, 10), vec2(45, 5), vec2(55, 15), true), // continuous
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
+    ]);
+    const out = alignTangentsHorizontal(s, 1);
+    const ko = out.knots[1]!;
+    expect(ko.tangentToPrev.y).toBeCloseTo(ko.end.y, 9);
+    expect(ko.tangentToNext.y).toBeCloseTo(ko.end.y, 9);
+    // collinear: sum of x-offsets is 0 (they point in opposite x directions)
+    expect(ko.tangentToPrev.x + ko.tangentToNext.x).toBeCloseTo(2 * ko.end.x, 9);
+  });
+
+  it('leaves other knots unchanged', () => {
+    const s = makeDiagSpline();
+    const out = alignTangentsHorizontal(s, 1);
+    expect(out.knots[0]).toEqual(s.knots[0]);
+    expect(out.knots[2]).toEqual(s.knots[2]);
+  });
+
+  it('returns a new spline instance (immutability)', () => {
+    const s = makeDiagSpline();
+    expect(alignTangentsHorizontal(s, 1)).not.toBe(s);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// alignTangentsVertical — port of BrdEditCommand.rotateControlPointToVertical
+// ---------------------------------------------------------------------------
+
+describe('alignTangentsVertical', () => {
+  // Interior knot with diagonal handles: end=(50,10), prev=(45,5), next=(55,15)
+  const makeDiagSpline = () =>
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0), true),
+      knot(vec2(50, 10), vec2(45, 5), vec2(55, 15), false),
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
+    ]);
+
+  it('rotates both tangents to vertical, preserving each handle length', () => {
+    const s = makeDiagSpline();
+    const k = s.knots[1]!;
+    const prevLen = Math.hypot(k.tangentToPrev.x - k.end.x, k.tangentToPrev.y - k.end.y);
+    const nextLen = Math.hypot(k.tangentToNext.x - k.end.x, k.tangentToNext.y - k.end.y);
+    const out = alignTangentsVertical(s, 1);
+    const ko = out.knots[1]!;
+    // x-coordinates of both handles must equal the endpoint's x
+    expect(ko.tangentToPrev.x).toBeCloseTo(k.end.x, 9);
+    expect(ko.tangentToNext.x).toBeCloseTo(k.end.x, 9);
+    // lengths are preserved
+    expect(Math.hypot(ko.tangentToPrev.x - ko.end.x, ko.tangentToPrev.y - ko.end.y)).toBeCloseTo(
+      prevLen,
+      9,
+    );
+    expect(Math.hypot(ko.tangentToNext.x - ko.end.x, ko.tangentToNext.y - ko.end.y)).toBeCloseTo(
+      nextLen,
+      9,
+    );
+  });
+
+  it('prev handle direction on Y axis is preserved (sign)', () => {
+    const s = makeDiagSpline();
+    // tangentToPrev.y (5) < end.y (10): prev is below end, so aligned it points below
+    const out = alignTangentsVertical(s, 1);
+    const ko = out.knots[1]!;
+    expect(ko.tangentToPrev.y).toBeLessThan(ko.end.y);
+  });
+
+  it('next handle direction on Y axis is preserved (sign)', () => {
+    const s = makeDiagSpline();
+    // tangentToNext.y (15) > end.y (10): next is above end, so aligned it points above
+    const out = alignTangentsVertical(s, 1);
+    const ko = out.knots[1]!;
+    expect(ko.tangentToNext.y).toBeGreaterThan(ko.end.y);
+  });
+
+  it('when continuous, both handles become collinear (vertical) through the endpoint', () => {
+    const s = splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0), true),
+      knot(vec2(50, 10), vec2(45, 5), vec2(55, 15), true), // continuous
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
+    ]);
+    const out = alignTangentsVertical(s, 1);
+    const ko = out.knots[1]!;
+    expect(ko.tangentToPrev.x).toBeCloseTo(ko.end.x, 9);
+    expect(ko.tangentToNext.x).toBeCloseTo(ko.end.x, 9);
+    // collinear vertical: sum of y-offsets is 0
+    expect(ko.tangentToPrev.y + ko.tangentToNext.y).toBeCloseTo(2 * ko.end.y, 9);
+  });
+
+  it('leaves other knots unchanged', () => {
+    const s = makeDiagSpline();
+    const out = alignTangentsVertical(s, 1);
+    expect(out.knots[0]).toEqual(s.knots[0]);
+    expect(out.knots[2]).toEqual(s.knots[2]);
+  });
+
+  it('returns a new spline instance (immutability)', () => {
+    const s = makeDiagSpline();
+    expect(alignTangentsVertical(s, 1)).not.toBe(s);
   });
 });
