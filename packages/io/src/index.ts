@@ -10,6 +10,8 @@ export { parseBrd } from './brd-reader';
 export type { ParsedBrd, BrdMetadataValue } from './brd-reader';
 export { parseS3d } from './s3d-reader';
 export type { ParsedS3d } from './s3d-reader';
+export { parseSrf, SrfReadError } from './srf-reader';
+export type { ParsedSrf } from './srf-reader';
 export {
   writeBoardJson,
   readBoardJson,

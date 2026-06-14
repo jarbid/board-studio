@@ -8,7 +8,7 @@ import {
   sheetToSvg,
   type TemplateSheet,
 } from '@openshaper/export';
-import { parseBrd, parseS3d, readBoardJson, writeBoardJson } from '@openshaper/io';
+import { parseBrd, parseS3d, parseSrf, readBoardJson, writeBoardJson } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
 
 function download(data: BlobPart, filename: string, type: string): void {
@@ -57,6 +57,10 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
       board: b,
       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
     };
+  },
+  '.srf': async (file) => {
+    const result = parseSrf(await file.arrayBuffer());
+    return { board: result.board, meta: { model: result.model, comments: result.comments } };
   },
 };
 
